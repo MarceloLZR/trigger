@@ -1,0 +1,17 @@
+{
+  "name": "Calidad de Datos",
+  "module": "GobiernoDatos",
+  "description": "Valida completitud y consistencia de campos críticos en el mes seleccionado.",
+  "parameters": [
+    {
+      "name": "COD_MES",
+      "label": "Mes",
+      "type": "month",
+      "default": "current",
+      "required": true
+    }
+  ],
+  "final_table": "##RESULTADO_CALIDAD",
+  "show_preview": true,
+  "export_excel": true
+}

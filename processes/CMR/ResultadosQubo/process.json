@@ -1,0 +1,37 @@
+{
+  "name": "Resultados QUBO",
+  "module": "CMR",
+  "description": "Obtiene los resultados de campañas gestionadas por el proveedor QUBOS en el rango de fechas indicado.",
+  "parameters": [
+    {
+      "name": "COD_MES",
+      "label": "Mes",
+      "type": "month",
+      "default": "current",
+      "required": true
+    },
+    {
+      "name": "FECHA_INICIO",
+      "label": "Fecha inicio",
+      "type": "date",
+      "required": true
+    },
+    {
+      "name": "FECHA_FIN",
+      "label": "Fecha fin",
+      "type": "date",
+      "required": true
+    },
+    {
+      "name": "PROVEEDOR",
+      "label": "Proveedor",
+      "type": "combo",
+      "options": ["QUBOS", "ATENTO", "CONECTA"],
+      "default": "QUBOS",
+      "required": true
+    }
+  ],
+  "final_table": "##BASE_QUBO",
+  "show_preview": true,
+  "export_excel": true
+}

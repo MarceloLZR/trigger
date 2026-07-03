@@ -1,0 +1,20 @@
+{
+  "name": "Cierre Mensual",
+  "description": "Secuencia completa de procesos para el cierre de mes: calidad de datos, resultados de campañas y riesgo.",
+  "steps": [
+    {
+      "process_id": "GobiernoDatos/CalidadDatos",
+      "parameters": {}
+    },
+    {
+      "process_id": "CMR/ResultadosQubo",
+      "parameters": {
+        "PROVEEDOR": "QUBOS"
+      }
+    },
+    {
+      "process_id": "Modelos/Riesgo",
+      "parameters": {}
+    }
+  ]
+}

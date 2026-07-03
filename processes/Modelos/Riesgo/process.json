@@ -1,0 +1,17 @@
+{
+  "name": "Riesgo",
+  "module": "Modelos",
+  "description": "Calcula el score de riesgo de clientes activos en el mes seleccionado.",
+  "parameters": [
+    {
+      "name": "COD_MES",
+      "label": "Mes",
+      "type": "month",
+      "default": "current",
+      "required": true
+    }
+  ],
+  "final_table": "##RESULTADO_RIESGO",
+  "show_preview": true,
+  "export_excel": true
+}

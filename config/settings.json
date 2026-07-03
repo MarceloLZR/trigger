@@ -1,0 +1,9 @@
+{
+  "server": "B200603SV01X\\INS_NEGOCIO",
+  "database": "BD_NEGOCIO",
+  "driver": "ODBC Driver 17 for SQL Server",
+  "trusted_connection": true,
+  "username": "",
+  "password": "",
+  "timeout": 30
+}
