@@ -33,5 +33,12 @@
   ],
   "final_table": "##BASE_QUBO",
   "show_preview": true,
-  "export_excel": true
+  "export_excel": true,
+  "auto_export_folder": "C:\\",
+  "export_csv": true,
+  "auto_export_csv_folder": "C:\\",
+  "send_email": true,
+  "email_default_to": "ejemplo@ejemplo.com",
+  "email_subject": "Resultados Qubo",
+  "email_template": "template.html"
 }

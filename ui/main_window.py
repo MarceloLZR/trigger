@@ -21,6 +21,8 @@ from infrastructure.process_repository import ProcessRepository
 from infrastructure.workflow_repository import WorkflowRepository
 from infrastructure.sql_template_engine import SqlTemplateEngine
 from infrastructure.excel_exporter import ExcelExporter
+from infrastructure.csv_exporter import CsvExporter
+from infrastructure.email_sender import EmailSender
 from application.history_service import HistoryService
 
 from ui.theme import get_stylesheet
@@ -49,6 +51,8 @@ class MainWindow(QMainWindow):
         self.workflow_repository = WorkflowRepository(PROJECT_ROOT / "workflows")
         self.template_engine = SqlTemplateEngine()
         self.excel_exporter = ExcelExporter()
+        self.csv_exporter = CsvExporter()
+        self.email_sender = EmailSender()
         self.history_service = HistoryService()
 
         self.processes: list[ProcessDefinition] = self.process_repository.load_all()
@@ -86,7 +90,8 @@ class MainWindow(QMainWindow):
         self.dashboard_view = DashboardView()
         self.module_view = ModuleProcessesView()
         self.process_run_view = ProcessRunView(
-            self.connection_manager, self.template_engine, self.excel_exporter, self.history_service
+            self.connection_manager, self.template_engine, self.excel_exporter, 
+            self.csv_exporter, self.email_sender, self.history_service
         )
         self.quick_execution_view = QuickExecutionView(
             self.connection_manager, self.template_engine, self.history_service

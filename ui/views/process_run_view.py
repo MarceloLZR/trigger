@@ -14,14 +14,14 @@ from pathlib import Path
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QSplitter, QFileDialog, QMessageBox
+    QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox
 )
 from PySide6.QtCore import Qt
 
 import pandas as pd
 
 from core.models import ProcessDefinition
-from core.interfaces import IConnectionProvider, ISqlTemplateEngine, IExcelExporter
+from core.interfaces import IConnectionProvider, ISqlTemplateEngine, IExcelExporter, ICsvExporter, IEmailSender
 from application.process_executor import ProcessWorker
 from application.history_service import HistoryService
 from ui.widgets.parameter_form import ParameterFormWidget
@@ -37,6 +37,8 @@ class ProcessRunView(QWidget):
         connection_provider: IConnectionProvider,
         template_engine: ISqlTemplateEngine,
         excel_exporter: IExcelExporter,
+        csv_exporter: ICsvExporter,
+        email_sender: IEmailSender,
         history_service: HistoryService,
         parent=None,
     ):
@@ -44,6 +46,8 @@ class ProcessRunView(QWidget):
         self.connection_provider = connection_provider
         self.template_engine = template_engine
         self.excel_exporter = excel_exporter
+        self.csv_exporter = csv_exporter
+        self.email_sender = email_sender
         self.history_service = history_service
 
         self.process: ProcessDefinition | None = None
@@ -75,6 +79,9 @@ class ProcessRunView(QWidget):
         self.form_container = QVBoxLayout()
         root.addLayout(self.form_container)
 
+        self.email_container = QVBoxLayout()
+        root.addLayout(self.email_container)
+
         action_row = QHBoxLayout()
         self.run_btn = QPushButton("▶ Ejecutar")
         self.run_btn.setObjectName("PrimaryButton")
@@ -90,9 +97,15 @@ class ProcessRunView(QWidget):
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(self._on_export_clicked)
 
+        self.export_csv_btn = QPushButton("Exportar a CSV")
+        self.export_csv_btn.setObjectName("SecondaryButton")
+        self.export_csv_btn.setEnabled(False)
+        self.export_csv_btn.clicked.connect(self._on_export_csv_clicked)
+
         action_row.addWidget(self.run_btn)
         action_row.addWidget(self.cancel_btn)
         action_row.addStretch()
+        action_row.addWidget(self.export_csv_btn)
         action_row.addWidget(self.export_btn)
         root.addLayout(action_row)
 
@@ -115,6 +128,7 @@ class ProcessRunView(QWidget):
         self.title_label.setText(process.name)
         self.desc_label.setText(process.description)
         self.export_btn.setEnabled(False)
+        self.export_csv_btn.setEnabled(False)
         self.current_df = None
         self.console.clear_log()
         self.progress_bar.setValue(0)
@@ -124,10 +138,26 @@ class ProcessRunView(QWidget):
             item = self.form_container.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
+                
+        while self.email_container.count():
+            item = self.email_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
         last_values = self.history_service.get_last_params(process.id)
         self.param_form = ParameterFormWidget(process.parameters, initial_values=last_values)
         self.form_container.addWidget(self.param_form)
+
+        self.email_input = None
+        if process.send_email:
+            group_box = QGroupBox("Configuración de Envío de Correo")
+            layout = QFormLayout()
+            self.email_input = QLineEdit()
+            if process.email_default_to:
+                self.email_input.setText(process.email_default_to)
+            layout.addRow("Destinatarios (separados por ;):", self.email_input)
+            group_box.setLayout(layout)
+            self.email_container.addWidget(group_box)
 
     def _on_run_clicked(self):
         if not self.process or not self.param_form:
@@ -141,6 +171,7 @@ class ProcessRunView(QWidget):
         self.run_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
         self.export_btn.setEnabled(False)
+        self.export_csv_btn.setEnabled(False)
         self.progress_bar.setValue(0)
         self.console.clear_log()
 
@@ -162,7 +193,70 @@ class ProcessRunView(QWidget):
         self.run_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
         self.export_btn.setEnabled(self.process.export_excel and not df.empty)
+        self.export_csv_btn.setEnabled(getattr(self.process, 'export_csv', False) and not df.empty)
         self.history_service.record_execution(record)
+
+        import os
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = self.process.name.replace(' ', '_')
+        
+        exported_files = []
+
+        if getattr(self.process, 'auto_export_folder', None) and not df.empty:
+            filename = f"{safe_name}_{timestamp}.xlsx"
+            export_path = os.path.join(self.process.auto_export_folder, filename)
+            try:
+                self.excel_exporter.export(df, export_path)
+                self.console.append_log(f"✅ Excel auto-guardado en: {export_path}")
+                exported_files.append(export_path)
+            except Exception as exc:
+                self.console.append_log(f"❌ Error al auto-guardar Excel: {str(exc)}")
+
+        if getattr(self.process, 'auto_export_csv_folder', None) and not df.empty:
+            filename = f"{safe_name}_{timestamp}.csv"
+            export_path = os.path.join(self.process.auto_export_csv_folder, filename)
+            try:
+                self.csv_exporter.export(df, export_path)
+                self.console.append_log(f"✅ CSV auto-guardado en: {export_path}")
+                exported_files.append(export_path)
+            except Exception as exc:
+                self.console.append_log(f"❌ Error al auto-guardar CSV: {str(exc)}")
+
+        if getattr(self.process, 'send_email', False) and self.email_input:
+            to_addresses = self.email_input.text().strip()
+            if to_addresses:
+                self.console.append_log(f"Enviando correo a: {to_addresses}...")
+                
+                subject = getattr(self.process, 'email_subject', f"Resultados: {self.process.name}")
+                if not subject:
+                    subject = f"Resultados: {self.process.name}"
+
+                html_body = f"<p>Adjunto los resultados del proceso <b>{self.process.name}</b>.</p><p>Filas generadas: {len(df)}</p>"
+                
+                if getattr(self.process, 'email_template', None):
+                    template_path = self.process.folder / self.process.email_template
+                    if template_path.exists():
+                        try:
+                            with open(template_path, 'r', encoding='utf-8') as f:
+                                html_body = f.read()
+                                
+                            # Reemplazos básicos en la plantilla
+                            html_body = html_body.replace("{proceso_nombre}", self.process.name)
+                            html_body = html_body.replace("{fecha}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            html_body = html_body.replace("{filas}", str(len(df)))
+                            
+                            # Reemplazos con los parámetros usados
+                            for param_name, param_value in record.parameters_used.items():
+                                html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
+                        except Exception as exc:
+                            self.console.append_log(f"❌ Error leyendo plantilla de correo: {str(exc)}")
+                
+                try:
+                    self.email_sender.send_email(to_addresses, subject, html_body, exported_files)
+                    self.console.append_log("✅ Correo enviado exitosamente.")
+                except Exception as exc:
+                    self.console.append_log(f"❌ Error al enviar correo: {str(exc)}")
 
     def _on_failed(self, message: str, record):
         self.run_btn.setEnabled(True)
@@ -182,3 +276,16 @@ class ProcessRunView(QWidget):
             QMessageBox.information(self, "Exportación completa", f"Archivo guardado en:\n{path}")
         except Exception as exc:
             QMessageBox.critical(self, "Error al exportar", str(exc))
+
+    def _on_export_csv_clicked(self):
+        if self.current_df is None or self.current_df.empty:
+            return
+        default_name = f"{self.process.name.replace(' ', '_')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar a CSV", default_name, "CSV (*.csv)")
+        if not path:
+            return
+        try:
+            self.csv_exporter.export(self.current_df, path)
+            QMessageBox.information(self, "Exportación completa", f"Archivo CSV guardado en:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Error al exportar a CSV", str(exc))

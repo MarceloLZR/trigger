@@ -49,3 +49,15 @@ class IExcelExporter(ABC):
     @abstractmethod
     def export(self, df: pd.DataFrame, destination_path: str, sheet_name: str = "Resultado") -> str:
         ...
+
+
+class ICsvExporter(ABC):
+    @abstractmethod
+    def export(self, df: pd.DataFrame, destination_path: str) -> str:
+        ...
+
+
+class IEmailSender(ABC):
+    @abstractmethod
+    def send_email(self, to_addresses: str, subject: str, html_body: str, attachment_paths: list[str] = None) -> bool:
+        ...

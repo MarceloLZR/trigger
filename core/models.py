@@ -59,6 +59,13 @@ class ProcessDefinition:
     icon_path: Optional[Path] = None
     show_preview: bool = True
     export_excel: bool = True
+    auto_export_folder: Optional[str] = None
+    export_csv: bool = False
+    auto_export_csv_folder: Optional[str] = None
+    send_email: bool = False
+    email_template: Optional[str] = None
+    email_default_to: Optional[str] = None
+    email_subject: Optional[str] = None
     folder: Optional[Path] = None
 
     @staticmethod
@@ -75,6 +82,13 @@ class ProcessDefinition:
             icon_path=icon_path,
             show_preview=data.get("show_preview", True),
             export_excel=data.get("export_excel", True),
+            auto_export_folder=data.get("auto_export_folder"),
+            export_csv=data.get("export_csv", False),
+            auto_export_csv_folder=data.get("auto_export_csv_folder"),
+            send_email=data.get("send_email", False),
+            email_template=data.get("email_template"),
+            email_default_to=data.get("email_default_to"),
+            email_subject=data.get("email_subject"),
             folder=folder,
         )
 
