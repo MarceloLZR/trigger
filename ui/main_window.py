@@ -34,7 +34,14 @@ from ui.views.workflows_view import WorkflowsView
 from ui.views.settings_view import SettingsView
 from ui.views.history_view import HistoryView
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+import sys
+
+if getattr(sys, 'frozen', False):
+    # If bundled via PyInstaller, use the temporary _MEIPASS folder (for -F) 
+    # or the bundle directory (for -D)
+    PROJECT_ROOT = Path(sys._MEIPASS)
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class MainWindow(QMainWindow):

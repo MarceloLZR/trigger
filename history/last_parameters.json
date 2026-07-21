@@ -4,5 +4,8 @@
     "FECHA_INICIO": "2026-07-02",
     "FECHA_FIN": "2026-07-02",
     "PROVEEDOR": "QUBOS"
+  },
+  "GobiernoDatos/CalidadDatos": {
+    "COD_MES": "202607"
   }
 }
