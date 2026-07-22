@@ -111,11 +111,17 @@ QProgressBar::chunk { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
 
 /* === TOOLTIPS === */
 QToolTip { background-color: #1A1A1A; color: #FFFFFF; border: 1px solid #FF6B00; padding: 5px 9px; border-radius: 4px; }
+/* === MESSAGE BOX === */
+QMessageBox {background-color: #FFFFFF;color: #1A1A1A;}
+QMessageBox QLabel {color: #1A1A1A;font-size: 13px;}
+QMessageBox QPushButton {background-color: #FF6B00;color: #FFFFFF;border: none;border-radius: 6px;padding: 6px 18px;min-width: 80px;font-weight: 600;}
+QMessageBox QPushButton:hover {background-color: #E85F00;}
+QMessageBox QPushButton:pressed {background-color: #A34400;}
 """
 
 # ---------------------------------------------------------------------------
 # Tema OSCURO — GRAFITO NEUTRO (sin tinte marrón), naranja como único acento
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- 
 DARK_QSS = """
 /* === BASE === */
 QMainWindow, QDialog { background-color: #14161A; color: #EDEDEF; font-family: 'Segoe UI', Arial; font-size: 13px; }
@@ -208,6 +214,12 @@ QProgressBar::chunk { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
 
 /* === TOOLTIPS === */
 QToolTip { background-color: #1D2026; color: #FFE0B2; border: 1px solid #FF6B00; padding: 5px 9px; border-radius: 4px; }
+/* === MESSAGE BOX === */
+QMessageBox {background-color: #1D2026;color: #EDEDEF;}
+QMessageBox QLabel {color: #EDEDEF;font-size: 13px;}
+QMessageBox QPushButton {background-color: #FF6B00;color: #FFFFFF;border: none;border-radius: 6px;padding: 6px 18px;min-width: 80px;font-weight: 600;}
+QMessageBox QPushButton:hover {background-color: #FF8C2A;}
+QMessageBox QPushButton:pressed {background-color: #CC5500;}
 """
 
 

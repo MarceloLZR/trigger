@@ -14,7 +14,8 @@ from pathlib import Path
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
-    QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox
+    QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
+    QTabWidget
 )
 from PySide6.QtCore import Qt
 
@@ -52,7 +53,8 @@ class ProcessRunView(QWidget):
 
         self.process: ProcessDefinition | None = None
         self.worker: ProcessWorker | None = None
-        self.current_df: pd.DataFrame | None = None
+        # Lista de resultados: [{"label": str, "df": DataFrame}, ...]
+        self.current_results: list[dict] = []
         self.param_form: ParameterFormWidget | None = None
 
         self._build_ui()
@@ -114,10 +116,14 @@ class ProcessRunView(QWidget):
         root.addWidget(self.progress_bar)
 
         splitter = QSplitter(Qt.Vertical)
-        self.preview_table = PreviewTableWidget()
+
+        # --- Preview: QTabWidget para soportar múltiples tablas ---
+        self.preview_tabs = QTabWidget()
+        self.preview_tabs.setObjectName("PreviewTabs")
+
         self.console = ConsoleWidget()
         self.console.setMaximumHeight(160)
-        splitter.addWidget(self.preview_table)
+        splitter.addWidget(self.preview_tabs)
         splitter.addWidget(self.console)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
@@ -129,9 +135,13 @@ class ProcessRunView(QWidget):
         self.desc_label.setText(process.description)
         self.export_btn.setEnabled(False)
         self.export_csv_btn.setEnabled(False)
-        self.current_df = None
+        self.current_results = []
         self.console.clear_log()
         self.progress_bar.setValue(0)
+
+        # Limpiar tabs de preview anteriores
+        while self.preview_tabs.count():
+            self.preview_tabs.removeTab(0)
 
         # limpiar formulario anterior
         while self.form_container.count():
@@ -187,71 +197,96 @@ class ProcessRunView(QWidget):
             self.worker.cancel()
             self.cancel_btn.setEnabled(False)
 
-    def _on_finished_ok(self, df: pd.DataFrame, record):
-        self.current_df = df
-        self.preview_table.set_dataframe(df)
+    def _on_finished_ok(self, results: list, record):
+        """
+        results: list[{"label": str, "df": DataFrame}]
+        """
+        self.current_results = results
         self.run_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
-        self.export_btn.setEnabled(self.process.export_excel and not df.empty)
-        self.export_csv_btn.setEnabled(getattr(self.process, 'export_csv', False) and not df.empty)
+
+        # --- Actualizar tabs de preview ---
+        while self.preview_tabs.count():
+            self.preview_tabs.removeTab(0)
+
+        has_data = any(not r["df"].empty for r in results)
+
+        for result in results:
+            table_widget = PreviewTableWidget()
+            table_widget.set_dataframe(result["df"])
+            self.preview_tabs.addTab(table_widget, result["label"])
+
+        # Habilitar exportación manual solo si hay datos
+        self.export_btn.setEnabled(self.process.export_excel and has_data)
+        self.export_csv_btn.setEnabled(getattr(self.process, 'export_csv', False) and has_data)
+
         self.history_service.record_execution(record)
 
         import os
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = self.process.name.replace(' ', '_')
-        
+
         exported_files = []
 
-        if getattr(self.process, 'auto_export_folder', None) and not df.empty:
-            filename = f"{safe_name}_{timestamp}.xlsx"
-            export_path = os.path.join(self.process.auto_export_folder, filename)
-            try:
-                self.excel_exporter.export(df, export_path)
-                self.console.append_log(f"✅ Excel auto-guardado en: {export_path}")
-                exported_files.append(export_path)
-            except Exception as exc:
-                self.console.append_log(f"❌ Error al auto-guardar Excel: {str(exc)}")
+        # --- Auto-export Excel: un archivo por tabla en la misma carpeta ---
+        if getattr(self.process, 'auto_export_folder', None) and has_data:
+            for result in results:
+                df = result["df"]
+                if df.empty:
+                    continue
+                safe_label = result["label"].replace(' ', '_')
+                filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
+                export_path = os.path.join(self.process.auto_export_folder, filename)
+                try:
+                    self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
+                    self.console.append_log(f"✅ Excel guardado: {export_path}")
+                    exported_files.append(export_path)
+                except Exception as exc:
+                    self.console.append_log(f"❌ Error al guardar Excel ({result['label']}): {str(exc)}")
 
-        if getattr(self.process, 'auto_export_csv_folder', None) and not df.empty:
-            filename = f"{safe_name}_{timestamp}.csv"
-            export_path = os.path.join(self.process.auto_export_csv_folder, filename)
-            try:
-                self.csv_exporter.export(df, export_path)
-                self.console.append_log(f"✅ CSV auto-guardado en: {export_path}")
-                exported_files.append(export_path)
-            except Exception as exc:
-                self.console.append_log(f"❌ Error al auto-guardar CSV: {str(exc)}")
+        # --- Auto-export CSV: un archivo por tabla en la misma carpeta ---
+        if getattr(self.process, 'auto_export_csv_folder', None) and has_data:
+            for result in results:
+                df = result["df"]
+                if df.empty:
+                    continue
+                safe_label = result["label"].replace(' ', '_')
+                filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
+                export_path = os.path.join(self.process.auto_export_csv_folder, filename)
+                try:
+                    self.csv_exporter.export(df, export_path)
+                    self.console.append_log(f"✅ CSV guardado: {export_path}")
+                    exported_files.append(export_path)
+                except Exception as exc:
+                    self.console.append_log(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
 
         if getattr(self.process, 'send_email', False) and self.email_input:
             to_addresses = self.email_input.text().strip()
             if to_addresses:
                 self.console.append_log(f"Enviando correo a: {to_addresses}...")
-                
+
                 subject = getattr(self.process, 'email_subject', f"Resultados: {self.process.name}")
                 if not subject:
                     subject = f"Resultados: {self.process.name}"
 
-                html_body = f"<p>Adjunto los resultados del proceso <b>{self.process.name}</b>.</p><p>Filas generadas: {len(df)}</p>"
-                
+                total_rows = sum(r["df"].shape[0] for r in results)
+                html_body = f"<p>Adjunto los resultados del proceso <b>{self.process.name}</b>.</p><p>Filas generadas: {total_rows}</p>"
+
                 if getattr(self.process, 'email_template', None):
                     template_path = self.process.folder / self.process.email_template
                     if template_path.exists():
                         try:
                             with open(template_path, 'r', encoding='utf-8') as f:
                                 html_body = f.read()
-                                
-                            # Reemplazos básicos en la plantilla
                             html_body = html_body.replace("{proceso_nombre}", self.process.name)
                             html_body = html_body.replace("{fecha}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                            html_body = html_body.replace("{filas}", str(len(df)))
-                            
-                            # Reemplazos con los parámetros usados
+                            html_body = html_body.replace("{filas}", str(total_rows))
                             for param_name, param_value in record.parameters_used.items():
                                 html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
                         except Exception as exc:
                             self.console.append_log(f"❌ Error leyendo plantilla de correo: {str(exc)}")
-                
+
                 try:
                     self.email_sender.send_email(to_addresses, subject, html_body, exported_files)
                     self.console.append_log("✅ Correo enviado exitosamente.")
@@ -265,27 +300,99 @@ class ProcessRunView(QWidget):
         QMessageBox.critical(self, "Error en la ejecución", message)
 
     def _on_export_clicked(self):
-        if self.current_df is None or self.current_df.empty:
+        """Exportación manual a Excel.
+        - 1 tabla  : selector de archivo (comportamiento anterior).
+        - N tablas : selector de carpeta, genera N archivos.
+        """
+        if not self.current_results:
             return
-        default_name = f"{self.process.name.replace(' ', '_')}.xlsx"
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar a Excel", default_name, "Excel (*.xlsx)")
-        if not path:
-            return
-        try:
-            self.excel_exporter.export(self.current_df, path)
-            QMessageBox.information(self, "Exportación completa", f"Archivo guardado en:\n{path}")
-        except Exception as exc:
-            QMessageBox.critical(self, "Error al exportar", str(exc))
+
+        from datetime import datetime
+        import os
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = self.process.name.replace(' ', '_')
+
+        if len(self.current_results) == 1:
+            # Comportamiento legado: diálogo de guardar archivo
+            result = self.current_results[0]
+            if result["df"].empty:
+                return
+            default_name = f"{safe_name}.xlsx"
+            path, _ = QFileDialog.getSaveFileName(self, "Exportar a Excel", default_name, "Excel (*.xlsx)")
+            if not path:
+                return
+            try:
+                self.excel_exporter.export(result["df"], path, sheet_name=result["label"][:31])
+                QMessageBox.information(self, "Exportación completa", f"Archivo guardado en:\n{path}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Error al exportar", str(exc))
+        else:
+            # Multi-tabla: selector de carpeta
+            folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de destino")
+            if not folder:
+                return
+            saved = []
+            errors = []
+            for result in self.current_results:
+                if result["df"].empty:
+                    continue
+                safe_label = result["label"].replace(' ', '_')
+                filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
+                path = os.path.join(folder, filename)
+                try:
+                    self.excel_exporter.export(result["df"], path, sheet_name=result["label"][:31])
+                    saved.append(filename)
+                except Exception as exc:
+                    errors.append(f"{result['label']}: {exc}")
+            msg = f"{len(saved)} archivo(s) guardados en:\n{folder}"
+            if errors:
+                msg += "\n\nErrores:\n" + "\n".join(errors)
+            QMessageBox.information(self, "Exportación completa", msg)
 
     def _on_export_csv_clicked(self):
-        if self.current_df is None or self.current_df.empty:
+        """Exportación manual a CSV.
+        - 1 tabla  : selector de archivo.
+        - N tablas : selector de carpeta, genera N archivos.
+        """
+        if not self.current_results:
             return
-        default_name = f"{self.process.name.replace(' ', '_')}.csv"
-        path, _ = QFileDialog.getSaveFileName(self, "Exportar a CSV", default_name, "CSV (*.csv)")
-        if not path:
-            return
-        try:
-            self.csv_exporter.export(self.current_df, path)
-            QMessageBox.information(self, "Exportación completa", f"Archivo CSV guardado en:\n{path}")
-        except Exception as exc:
-            QMessageBox.critical(self, "Error al exportar a CSV", str(exc))
+
+        from datetime import datetime
+        import os
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = self.process.name.replace(' ', '_')
+
+        if len(self.current_results) == 1:
+            result = self.current_results[0]
+            if result["df"].empty:
+                return
+            default_name = f"{safe_name}.csv"
+            path, _ = QFileDialog.getSaveFileName(self, "Exportar a CSV", default_name, "CSV (*.csv)")
+            if not path:
+                return
+            try:
+                self.csv_exporter.export(result["df"], path)
+                QMessageBox.information(self, "Exportación completa", f"Archivo CSV guardado en:\n{path}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Error al exportar a CSV", str(exc))
+        else:
+            folder = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta de destino")
+            if not folder:
+                return
+            saved = []
+            errors = []
+            for result in self.current_results:
+                if result["df"].empty:
+                    continue
+                safe_label = result["label"].replace(' ', '_')
+                filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
+                path = os.path.join(folder, filename)
+                try:
+                    self.csv_exporter.export(result["df"], path)
+                    saved.append(filename)
+                except Exception as exc:
+                    errors.append(f"{result['label']}: {exc}")
+            msg = f"{len(saved)} archivo(s) CSV guardados en:\n{folder}"
+            if errors:
+                msg += "\n\nErrores:\n" + "\n".join(errors)
+            QMessageBox.information(self, "Exportación completa", msg)

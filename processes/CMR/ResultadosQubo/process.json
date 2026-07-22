@@ -1,44 +1,72 @@
 {
   "name": "Resultados QUBO",
   "module": "CMR",
-  "description": "Obtiene los resultados de campañas gestionadas por el proveedor QUBOS en el rango de fechas indicado.",
+  "description": "Genera la base final de resultados QUBO para clientes inactivos, cruzando la base gestionable con feedback de llamadas y primera compra dentro del rango indicado.",
   "parameters": [
     {
       "name": "COD_MES",
-      "label": "Mes",
+      "label": "Mes de campaña",
       "type": "month",
       "default": "current",
       "required": true
     },
     {
       "name": "FECHA_INICIO",
-      "label": "Fecha inicio",
+      "label": "Fecha inicio de compras",
       "type": "date",
+      "format": "yyyyMMdd",
       "required": true
     },
     {
       "name": "FECHA_FIN",
-      "label": "Fecha fin",
+      "label": "Fecha fin de compras",
       "type": "date",
+      "format": "yyyyMMdd",
       "required": true
     },
     {
       "name": "PROVEEDOR",
-      "label": "Proveedor",
+      "label": "Proveedor de feedback",
       "type": "combo",
-      "options": ["QUBOS", "ATENTO", "CONECTA"],
+      "options": [
+        "QUBOS",
+        "ATENTO",
+        "CONECTA"
+      ],
       "default": "QUBOS",
+      "required": true
+    },
+    {
+      "name": "CALL_CENTER",
+      "label": "Call center histórico",
+      "type": "combo",
+      "options": [
+        "QUBOS",
+        "ATENTO",
+        "CONECTA"
+      ],
+      "default": "QUBOS",
+      "required": true
+    },
+    {
+      "name": "TIPO_XCLU",
+      "label": "Tipo de exclusión / base",
+      "type": "combo",
+      "options": [
+        "07. BD GESTIONABLE"
+      ],
+      "default": "07. BD GESTIONABLE",
       "required": true
     }
   ],
   "final_table": "##BASE_QUBO",
   "show_preview": true,
   "export_excel": true,
-  "auto_export_folder": "C:\\",
+  "auto_export_folder": "C:\\app",
   "export_csv": true,
-  "auto_export_csv_folder": "C:\\",
+  "auto_export_csv_folder": "C:\\app",
   "send_email": true,
-  "email_default_to": "ejemplo@ejemplo.com",
+  "email_default_to": "marcelo.nunez@cencosudscotiabank.pe",
   "email_subject": "Resultados Qubo",
   "email_template": "template.html"
 }

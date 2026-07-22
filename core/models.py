@@ -24,6 +24,20 @@ class ParameterType(str, Enum):
 
 
 @dataclass
+class FinalTable:
+    """Representa una tabla de resultado que el proceso genera."""
+    table: str    # nombre de la tabla temporal, p.ej. ##alpes
+    label: str    # etiqueta legible para UI/nombre de archivo
+
+    @staticmethod
+    def from_dict(data: dict) -> "FinalTable":
+        return FinalTable(
+            table=data["table"],
+            label=data.get("label", data["table"]),
+        )
+
+
+@dataclass
 class Parameter:
     name: str                      # nombre de la variable en el SQL -> {{name}}
     label: str                     # etiqueta visible en el formulario
@@ -48,13 +62,21 @@ class Parameter:
 
 @dataclass
 class ProcessDefinition:
-    """Representa un proceso SQL detectado en /processes/<Modulo>/<Proceso>/"""
+    """Representa un proceso SQL detectado en /processes/<Modulo>/<Proceso>/
+
+    Soporta dos modos:
+    - final_table (str): proceso de una sola tabla (legado).
+    - final_tables (list[FinalTable]): proceso multi-tabla.
+
+    El from_dict normaliza ambos casos a final_tables para que el
+    executor y la UI usen siempre la misma interfaz.
+    """
     id: str                        # identificador único (ruta relativa normalizada)
     name: str
     module: str
     description: str
     parameters: list[Parameter]
-    final_table: str
+    final_tables: list[FinalTable]  # siempre presente (>=1 elemento)
     sql_path: Path
     icon_path: Optional[Path] = None
     show_preview: bool = True
@@ -68,16 +90,30 @@ class ProcessDefinition:
     email_subject: Optional[str] = None
     folder: Optional[Path] = None
 
+    @property
+    def final_table(self) -> str:
+        """Compatibilidad con código antiguo que accede a final_table (str)."""
+        return self.final_tables[0].table if self.final_tables else ""
+
     @staticmethod
     def from_dict(data: dict, process_id: str, sql_path: Path,
                    icon_path: Optional[Path], folder: Path) -> "ProcessDefinition":
+        # Soporta tanto "final_tables" (lista) como "final_table" (string)
+        if "final_tables" in data:
+            final_tables = [FinalTable.from_dict(t) for t in data["final_tables"]]
+        elif "final_table" in data:
+            ft = data["final_table"]
+            final_tables = [FinalTable(table=ft, label="Resultado")]
+        else:
+            raise KeyError("El proceso debe definir 'final_table' o 'final_tables' en process.json")
+
         return ProcessDefinition(
             id=process_id,
             name=data["name"],
             module=data["module"],
             description=data.get("description", ""),
             parameters=[Parameter.from_dict(p) for p in data.get("parameters", [])],
-            final_table=data["final_table"],
+            final_tables=final_tables,
             sql_path=sql_path,
             icon_path=icon_path,
             show_preview=data.get("show_preview", True),
