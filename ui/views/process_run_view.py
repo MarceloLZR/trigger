@@ -60,7 +60,15 @@ class ProcessRunView(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        root = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        
+        self.scroll_content = QWidget()
+        root = QVBoxLayout(self.scroll_content)
         root.setContentsMargins(24, 20, 24, 20)
 
         header = QHBoxLayout()
@@ -75,38 +83,14 @@ class ProcessRunView(QWidget):
         self.title_label.setStyleSheet("font-size: 20px; font-weight: 700;")
         self.desc_label = QLabel("")
         self.desc_label.setObjectName("CardDesc")
+        root.addWidget(self.title_label)
+        root.addWidget(self.desc_label)
 
-        # Main splitter to separate top area (params) from bottom area (results)
-        self.main_splitter = QSplitter(Qt.Vertical)
-        root.addWidget(self.main_splitter, 1)
-
-        # Top container
-        self.top_widget = QWidget()
-        self.top_layout = QVBoxLayout(self.top_widget)
-        self.top_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.top_layout.addWidget(self.title_label)
-        self.top_layout.addWidget(self.desc_label)
-
-        # Scroll area for parameters
-        self.param_scroll = QScrollArea()
-        self.param_scroll.setWidgetResizable(True)
-        self.param_scroll.setFrameShape(QFrame.NoFrame)
-        
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
-        
         self.form_container = QVBoxLayout()
-        self.scroll_layout.addLayout(self.form_container)
+        root.addLayout(self.form_container)
 
         self.email_container = QVBoxLayout()
-        self.scroll_layout.addLayout(self.email_container)
-        
-        self.scroll_layout.addStretch()
-        self.param_scroll.setWidget(self.scroll_content)
-        
-        self.top_layout.addWidget(self.param_scroll, 1)
+        root.addLayout(self.email_container)
 
         action_row = QHBoxLayout()
         self.run_btn = QPushButton("▶ Ejecutar")
@@ -133,30 +117,24 @@ class ProcessRunView(QWidget):
         action_row.addStretch()
         action_row.addWidget(self.export_csv_btn)
         action_row.addWidget(self.export_btn)
-        self.top_layout.addLayout(action_row)
+        root.addLayout(action_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        self.top_layout.addWidget(self.progress_bar)
-
-        self.main_splitter.addWidget(self.top_widget)
-
-        self.results_splitter = QSplitter(Qt.Vertical)
+        root.addWidget(self.progress_bar)
 
         # --- Preview: QTabWidget para soportar múltiples tablas ---
         self.preview_tabs = QTabWidget()
         self.preview_tabs.setObjectName("PreviewTabs")
+        self.preview_tabs.setMinimumHeight(350)
+        root.addWidget(self.preview_tabs, 1)
 
         self.console = ConsoleWidget()
-        # Removed fixed maximum height to allow flexible resizing by the user
-        self.results_splitter.addWidget(self.preview_tabs)
-        self.results_splitter.addWidget(self.console)
-        self.results_splitter.setStretchFactor(0, 3)
-        self.results_splitter.setStretchFactor(1, 1)
+        self.console.setMinimumHeight(150)
+        root.addWidget(self.console)
         
-        self.main_splitter.addWidget(self.results_splitter)
-        self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 3)
+        self.scroll_area.setWidget(self.scroll_content)
+        main_layout.addWidget(self.scroll_area)
 
     def set_process(self, process: ProcessDefinition):
         self.process = process
