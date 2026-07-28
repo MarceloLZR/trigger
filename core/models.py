@@ -177,6 +177,7 @@ class ExecutionRecord:
     status: ExecutionStatus = ExecutionStatus.RUNNING
     error_message: str = ""
     parameters_used: dict[str, Any] = field(default_factory=dict)
+    export_options: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -189,4 +190,5 @@ class ExecutionRecord:
             "status": self.status.value,
             "error_message": self.error_message,
             "parameters_used": self.parameters_used,
+            "export_options": self.export_options,
         }

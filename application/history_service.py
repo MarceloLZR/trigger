@@ -26,7 +26,7 @@ class HistoryService:
         with open(HISTORY_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
 
-        self._save_last_params(record.process_id, record.parameters_used)
+        self._save_last_state(record.process_id, record.parameters_used, record.export_options)
 
     def get_history(self, limit: int = 200) -> list[dict]:
         if not HISTORY_FILE.exists():
@@ -36,18 +36,37 @@ class HistoryService:
         records = [json.loads(line) for line in lines[-limit:]]
         return list(reversed(records))
 
-    def _save_last_params(self, process_id: str, params: dict[str, Any]):
-        all_params = {}
+    def _save_last_state(self, process_id: str, params: dict[str, Any], export_options: dict[str, Any]):
+        all_states = {}
         if LAST_PARAMS_FILE.exists():
             with open(LAST_PARAMS_FILE, "r", encoding="utf-8") as f:
-                all_params = json.load(f)
-        all_params[process_id] = params
+                try:
+                    all_states = json.load(f)
+                except Exception:
+                    pass
+                    
+        all_states[process_id] = {
+            "parameters": params,
+            "export_options": export_options
+        }
         with open(LAST_PARAMS_FILE, "w", encoding="utf-8") as f:
-            json.dump(all_params, f, indent=2, ensure_ascii=False, default=str)
+            json.dump(all_states, f, indent=2, ensure_ascii=False, default=str)
 
-    def get_last_params(self, process_id: str) -> dict[str, Any]:
+    def get_last_state(self, process_id: str) -> dict[str, Any]:
         if not LAST_PARAMS_FILE.exists():
-            return {}
+            return {"parameters": {}, "export_options": {}}
         with open(LAST_PARAMS_FILE, "r", encoding="utf-8") as f:
-            all_params = json.load(f)
-        return all_params.get(process_id, {})
+            try:
+                all_states = json.load(f)
+            except Exception:
+                return {"parameters": {}, "export_options": {}}
+                
+        state = all_states.get(process_id, {})
+        # Backward compatibility check for old format which was just dict of params
+        if state and "parameters" not in state and "export_options" not in state:
+            return {"parameters": state, "export_options": {}}
+            
+        return {
+            "parameters": state.get("parameters", {}),
+            "export_options": state.get("export_options", {})
+        }

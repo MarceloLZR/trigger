@@ -15,7 +15,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
-    QTabWidget, QScrollArea, QFrame
+    QTabWidget, QScrollArea, QFrame, QCheckBox
 )
 from PySide6.QtCore import Qt
 
@@ -161,20 +161,80 @@ class ProcessRunView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        last_values = self.history_service.get_last_params(process.id)
+        last_state = self.history_service.get_last_state(process.id)
+        if hasattr(self.history_service, 'get_last_params') and last_state == {}:
+            # Support backwards compatibility if it exists
+            pass
+        last_values = last_state.get("parameters", {})
+        last_export_opts = last_state.get("export_options", {})
+
         self.param_form = ParameterFormWidget(process.parameters, initial_values=last_values)
         self.form_container.addWidget(self.param_form)
 
+        self.export_options = {}
+        self.export_inputs = {}
+        if getattr(process, 'auto_export_folder', None) or getattr(process, 'auto_export_csv_folder', None):
+            export_gb = QGroupBox("Configuración de Exportación Automática")
+            export_layout = QFormLayout()
+            
+            if getattr(process, 'auto_export_folder', None):
+                self.export_inputs['excel_path'] = QLineEdit()
+                self.export_inputs['excel_path'].setText(last_export_opts.get("excel_path", process.auto_export_folder))
+                
+                path_layout = QHBoxLayout()
+                path_layout.addWidget(self.export_inputs['excel_path'])
+                browse_btn = QPushButton("...")
+                browse_btn.setFixedWidth(30)
+                browse_btn.clicked.connect(lambda: self._browse_folder('excel_path'))
+                path_layout.addWidget(browse_btn)
+                
+                export_layout.addRow("Ruta Excel:", path_layout)
+                
+            if getattr(process, 'auto_export_csv_folder', None):
+                self.export_inputs['csv_path'] = QLineEdit()
+                self.export_inputs['csv_path'].setText(last_export_opts.get("csv_path", process.auto_export_csv_folder))
+                
+                path_layout = QHBoxLayout()
+                path_layout.addWidget(self.export_inputs['csv_path'])
+                browse_btn = QPushButton("...")
+                browse_btn.setFixedWidth(30)
+                browse_btn.clicked.connect(lambda: self._browse_folder('csv_path'))
+                path_layout.addWidget(browse_btn)
+                
+                export_layout.addRow("Ruta CSV:", path_layout)
+                
+            export_gb.setLayout(export_layout)
+            self.email_container.addWidget(export_gb)
+
         self.email_input = None
+        self.attach_excel_cb = None
+        self.attach_csv_cb = None
         if process.send_email:
             group_box = QGroupBox("Configuración de Envío de Correo")
             layout = QFormLayout()
             self.email_input = QLineEdit()
             if process.email_default_to:
-                self.email_input.setText(process.email_default_to)
+                self.email_input.setText(last_export_opts.get("email_to", process.email_default_to))
             layout.addRow("Destinatarios (separados por ;):", self.email_input)
+            
+            if getattr(process, 'auto_export_folder', None):
+                self.attach_excel_cb = QCheckBox("Adjuntar Excel")
+                self.attach_excel_cb.setChecked(last_export_opts.get("attach_excel", True))
+                layout.addRow("", self.attach_excel_cb)
+                
+            if getattr(process, 'auto_export_csv_folder', None):
+                self.attach_csv_cb = QCheckBox("Adjuntar CSV")
+                self.attach_csv_cb.setChecked(last_export_opts.get("attach_csv", True))
+                layout.addRow("", self.attach_csv_cb)
+                
             group_box.setLayout(layout)
             self.email_container.addWidget(group_box)
+
+    def _browse_folder(self, input_key: str):
+        current_path = self.export_inputs[input_key].text()
+        folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta", current_path)
+        if folder:
+            self.export_inputs[input_key].setText(folder)
 
     def _on_run_clicked(self):
         if not self.process or not self.param_form:
@@ -191,6 +251,14 @@ class ProcessRunView(QWidget):
         self.export_csv_btn.setEnabled(False)
         self.progress_bar.setValue(0)
         self.console.clear_log()
+
+        self.current_export_options = {
+            "excel_path": self.export_inputs['excel_path'].text() if 'excel_path' in self.export_inputs else None,
+            "csv_path": self.export_inputs['csv_path'].text() if 'csv_path' in self.export_inputs else None,
+            "email_to": self.email_input.text() if self.email_input else None,
+            "attach_excel": self.attach_excel_cb.isChecked() if getattr(self, 'attach_excel_cb', None) else False,
+            "attach_csv": self.attach_csv_cb.isChecked() if getattr(self, 'attach_csv_cb', None) else False
+        }
 
         self.worker = ProcessWorker(self.process, params, self.connection_provider, self.template_engine)
         self.worker.log.connect(self.console.append_log)
@@ -227,6 +295,7 @@ class ProcessRunView(QWidget):
         self.export_btn.setEnabled(self.process.export_excel and has_data)
         self.export_csv_btn.setEnabled(getattr(self.process, 'export_csv', False) and has_data)
 
+        record.export_options = self.current_export_options
         self.history_service.record_execution(record)
 
         import os
@@ -235,36 +304,42 @@ class ProcessRunView(QWidget):
         safe_name = self.process.name.replace(' ', '_')
 
         exported_files = []
+        excel_folder = self.current_export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
+        csv_folder = self.current_export_options.get('csv_path') or getattr(self.process, 'auto_export_csv_folder', None)
+        attach_excel = self.current_export_options.get('attach_excel', True)
+        attach_csv = self.current_export_options.get('attach_csv', True)
 
         # --- Auto-export Excel: un archivo por tabla en la misma carpeta ---
-        if getattr(self.process, 'auto_export_folder', None) and has_data:
+        if excel_folder and has_data:
             for result in results:
                 df = result["df"]
                 if df.empty:
                     continue
                 safe_label = result["label"].replace(' ', '_')
                 filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
-                export_path = os.path.join(self.process.auto_export_folder, filename)
+                export_path = os.path.join(excel_folder, filename)
                 try:
                     self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
                     self.console.append_log(f"✅ Excel guardado: {export_path}")
-                    exported_files.append(export_path)
+                    if attach_excel:
+                        exported_files.append(export_path)
                 except Exception as exc:
                     self.console.append_log(f"❌ Error al guardar Excel ({result['label']}): {str(exc)}")
 
         # --- Auto-export CSV: un archivo por tabla en la misma carpeta ---
-        if getattr(self.process, 'auto_export_csv_folder', None) and has_data:
+        if csv_folder and has_data:
             for result in results:
                 df = result["df"]
                 if df.empty:
                     continue
                 safe_label = result["label"].replace(' ', '_')
                 filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
-                export_path = os.path.join(self.process.auto_export_csv_folder, filename)
+                export_path = os.path.join(csv_folder, filename)
                 try:
                     self.csv_exporter.export(df, export_path)
                     self.console.append_log(f"✅ CSV guardado: {export_path}")
-                    exported_files.append(export_path)
+                    if attach_csv:
+                        exported_files.append(export_path)
                 except Exception as exc:
                     self.console.append_log(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
 
