@@ -124,7 +124,7 @@ class ProcessWorker(QThread):
                     f"SELECT * FROM {ft.table}",
                     conn,
                 )
-                results.append({"label": ft.label, "df": df})
+                results.append({"label": ft.label, "df": df, "export_name": ft.export_name})
 
             total_rows = sum(r["df"].shape[0] for r in results)
             record.row_count = total_rows

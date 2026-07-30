@@ -28,12 +28,14 @@ class FinalTable:
     """Representa una tabla de resultado que el proceso genera."""
     table: str    # nombre de la tabla temporal, p.ej. ##alpes
     label: str    # etiqueta legible para UI/nombre de archivo
+    export_name: Optional[str] = None  # Nombre opcional para exportar archivos
 
     @staticmethod
     def from_dict(data: dict) -> "FinalTable":
         return FinalTable(
             table=data["table"],
             label=data.get("label", data["table"]),
+            export_name=data.get("export_name"),
         )
 
 

@@ -236,6 +236,14 @@ class ProcessRunView(QWidget):
         if folder:
             self.export_inputs[input_key].setText(folder)
 
+    def _render_string(self, text: str, params: dict) -> str:
+        if not text:
+            return ""
+        res = text
+        for k, v in params.items():
+            res = res.replace(f"{{{k}}}", str(v))
+        return res
+
     def _on_run_clicked(self):
         if not self.process or not self.param_form:
             return
@@ -301,7 +309,8 @@ class ProcessRunView(QWidget):
         import os
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = self.process.name.replace(' ', '_')
+        rendered_process_name = self._render_string(self.process.name, record.parameters_used)
+        safe_name = rendered_process_name.replace(' ', '_')
 
         exported_files = []
         excel_folder = self.current_export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
@@ -315,8 +324,12 @@ class ProcessRunView(QWidget):
                 df = result["df"]
                 if df.empty:
                     continue
-                safe_label = result["label"].replace(' ', '_')
-                filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
+                export_name_template = result.get("export_name")
+                if export_name_template:
+                    filename = self._render_string(export_name_template, record.parameters_used) + ".xlsx"
+                else:
+                    safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                    filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
                 export_path = os.path.join(excel_folder, filename)
                 try:
                     self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
@@ -332,8 +345,12 @@ class ProcessRunView(QWidget):
                 df = result["df"]
                 if df.empty:
                     continue
-                safe_label = result["label"].replace(' ', '_')
-                filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
+                export_name_template = result.get("export_name")
+                if export_name_template:
+                    filename = self._render_string(export_name_template, record.parameters_used) + ".csv"
+                else:
+                    safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                    filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
                 export_path = os.path.join(csv_folder, filename)
                 try:
                     self.csv_exporter.export(df, export_path)
@@ -392,14 +409,20 @@ class ProcessRunView(QWidget):
         from datetime import datetime
         import os
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = self.process.name.replace(' ', '_')
+        params = self.param_form.get_values()
+        rendered_process_name = self._render_string(self.process.name, params)
+        safe_name = rendered_process_name.replace(' ', '_')
 
         if len(self.current_results) == 1:
             # Comportamiento legado: diálogo de guardar archivo
             result = self.current_results[0]
             if result["df"].empty:
                 return
-            default_name = f"{safe_name}.xlsx"
+            export_name_template = result.get("export_name")
+            if export_name_template:
+                default_name = self._render_string(export_name_template, params) + ".xlsx"
+            else:
+                default_name = f"{safe_name}.xlsx"
             path, _ = QFileDialog.getSaveFileName(self, "Exportar a Excel", default_name, "Excel (*.xlsx)")
             if not path:
                 return
@@ -418,8 +441,12 @@ class ProcessRunView(QWidget):
             for result in self.current_results:
                 if result["df"].empty:
                     continue
-                safe_label = result["label"].replace(' ', '_')
-                filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
+                export_name_template = result.get("export_name")
+                if export_name_template:
+                    filename = self._render_string(export_name_template, params) + ".xlsx"
+                else:
+                    safe_label = self._render_string(result["label"], params).replace(' ', '_')
+                    filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
                 path = os.path.join(folder, filename)
                 try:
                     self.excel_exporter.export(result["df"], path, sheet_name=result["label"][:31])
@@ -442,13 +469,19 @@ class ProcessRunView(QWidget):
         from datetime import datetime
         import os
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_name = self.process.name.replace(' ', '_')
+        params = self.param_form.get_values()
+        rendered_process_name = self._render_string(self.process.name, params)
+        safe_name = rendered_process_name.replace(' ', '_')
 
         if len(self.current_results) == 1:
             result = self.current_results[0]
             if result["df"].empty:
                 return
-            default_name = f"{safe_name}.csv"
+            export_name_template = result.get("export_name")
+            if export_name_template:
+                default_name = self._render_string(export_name_template, params) + ".csv"
+            else:
+                default_name = f"{safe_name}.csv"
             path, _ = QFileDialog.getSaveFileName(self, "Exportar a CSV", default_name, "CSV (*.csv)")
             if not path:
                 return
@@ -466,8 +499,12 @@ class ProcessRunView(QWidget):
             for result in self.current_results:
                 if result["df"].empty:
                     continue
-                safe_label = result["label"].replace(' ', '_')
-                filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
+                export_name_template = result.get("export_name")
+                if export_name_template:
+                    filename = self._render_string(export_name_template, params) + ".csv"
+                else:
+                    safe_label = self._render_string(result["label"], params).replace(' ', '_')
+                    filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
                 path = os.path.join(folder, filename)
                 try:
                     self.csv_exporter.export(result["df"], path)
