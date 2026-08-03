@@ -27,9 +27,9 @@ import pandas as pd
 from PySide6.QtCore import QThread, Signal
 
 from core.models import ProcessDefinition, ExecutionRecord, ExecutionStatus
-from core.interfaces import IConnectionProvider, ISqlTemplateEngine
+from core.interfaces import IConnectionProvider, ISqlTemplateEngine, IExcelExporter, ICsvExporter, IEmailSender
 from infrastructure.sql_template_engine import MissingParameterError
-
+import os
 
 class ProcessWorker(QThread):
     log = Signal(str)
@@ -43,6 +43,10 @@ class ProcessWorker(QThread):
         params: dict[str, Any],
         connection_provider: IConnectionProvider,
         template_engine: ISqlTemplateEngine,
+        excel_exporter: Optional[IExcelExporter] = None,
+        csv_exporter: Optional[ICsvExporter] = None,
+        email_sender: Optional[IEmailSender] = None,
+        export_options: Optional[dict] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -51,7 +55,19 @@ class ProcessWorker(QThread):
         self.params = params
         self.connection_provider = connection_provider
         self.template_engine = template_engine
+        self.excel_exporter = excel_exporter
+        self.csv_exporter = csv_exporter
+        self.email_sender = email_sender
+        self.export_options = export_options or {}
         self._cancelled = False
+
+    def _render_string(self, text: str, params: dict) -> str:
+        if not text:
+            return ""
+        res = text
+        for k, v in params.items():
+            res = res.replace(f"{{{k}}}", str(v))
+        return res
 
     def cancel(self):
         self._cancelled = True
@@ -134,6 +150,98 @@ class ProcessWorker(QThread):
             ).total_seconds()
 
             record.status = ExecutionStatus.SUCCESS
+
+            self.progress.emit(90)
+            
+            # --- POST PROCESSING: EXPORTS & EMAIL ---
+            has_data = any(not r["df"].empty for r in results)
+            exported_files = []
+            
+            if has_data:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                rendered_process_name = self._render_string(self.process.name, record.parameters_used)
+                safe_name = rendered_process_name.replace(' ', '_')
+                
+                excel_folder = self.export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
+                csv_folder = self.export_options.get('csv_path') or getattr(self.process, 'auto_export_csv_folder', None)
+                attach_excel = self.export_options.get('attach_excel', True)
+                attach_csv = self.export_options.get('attach_csv', True)
+                
+                # Excel
+                if excel_folder and self.excel_exporter:
+                    self.log.emit("Guardando archivos Excel...")
+                    for result in results:
+                        df = result["df"]
+                        if df.empty:
+                            continue
+                        export_name_template = result.get("export_name")
+                        if export_name_template:
+                            filename = self._render_string(export_name_template, record.parameters_used) + ".xlsx"
+                        else:
+                            safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                            filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
+                        export_path = os.path.join(excel_folder, filename)
+                        try:
+                            self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
+                            self.log.emit(f"✅ Excel guardado: {export_path}")
+                            if attach_excel:
+                                exported_files.append(export_path)
+                        except Exception as exc:
+                            self.log.emit(f"❌ Error al guardar Excel ({result['label']}): {str(exc)}")
+                
+                # CSV
+                if csv_folder and self.csv_exporter:
+                    self.log.emit("Guardando archivos CSV...")
+                    for result in results:
+                        df = result["df"]
+                        if df.empty:
+                            continue
+                        export_name_template = result.get("export_name")
+                        if export_name_template:
+                            filename = self._render_string(export_name_template, record.parameters_used) + ".csv"
+                        else:
+                            safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                            filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
+                        export_path = os.path.join(csv_folder, filename)
+                        try:
+                            self.csv_exporter.export(df, export_path)
+                            self.log.emit(f"✅ CSV guardado: {export_path}")
+                            if attach_csv:
+                                exported_files.append(export_path)
+                        except Exception as exc:
+                            self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
+                            
+            # Email
+            to_addresses = self.export_options.get('email_to')
+            if getattr(self.process, 'send_email', False) and to_addresses and self.email_sender:
+                self.log.emit(f"Enviando correo a: {to_addresses}...")
+                
+                subject = getattr(self.process, 'email_subject', f"Resultados: {self.process.name}")
+                if not subject:
+                    subject = f"Resultados: {self.process.name}"
+
+                total_rows = sum(r["df"].shape[0] for r in results)
+                html_body = f"<p>Adjunto los resultados del proceso <b>{self.process.name}</b>.</p><p>Filas generadas: {total_rows}</p>"
+
+                if getattr(self.process, 'email_template', None):
+                    template_path = self.process.folder / self.process.email_template
+                    if template_path.exists():
+                        try:
+                            with open(template_path, 'r', encoding='utf-8') as f:
+                                html_body = f.read()
+                            html_body = html_body.replace("{proceso_nombre}", self.process.name)
+                            html_body = html_body.replace("{fecha}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                            html_body = html_body.replace("{filas}", str(total_rows))
+                            for param_name, param_value in record.parameters_used.items():
+                                html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
+                        except Exception as exc:
+                            self.log.emit(f"❌ Error leyendo plantilla de correo: {str(exc)}")
+
+                try:
+                    self.email_sender.send_email(to_addresses, subject, html_body, exported_files)
+                    self.log.emit("✅ Correo enviado exitosamente.")
+                except Exception as exc:
+                    self.log.emit(f"❌ Error al enviar correo: {str(exc)}")
 
             self.progress.emit(100)
 

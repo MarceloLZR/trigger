@@ -268,7 +268,16 @@ class ProcessRunView(QWidget):
             "attach_csv": self.attach_csv_cb.isChecked() if getattr(self, 'attach_csv_cb', None) else False
         }
 
-        self.worker = ProcessWorker(self.process, params, self.connection_provider, self.template_engine)
+        self.worker = ProcessWorker(
+            process=self.process,
+            params=params,
+            connection_provider=self.connection_provider,
+            template_engine=self.template_engine,
+            excel_exporter=self.excel_exporter,
+            csv_exporter=self.csv_exporter,
+            email_sender=self.email_sender,
+            export_options=self.current_export_options
+        )
         self.worker.log.connect(self.console.append_log)
         self.worker.progress.connect(self.progress_bar.setValue)
         self.worker.finished_ok.connect(self._on_finished_ok)
@@ -305,92 +314,6 @@ class ProcessRunView(QWidget):
 
         record.export_options = self.current_export_options
         self.history_service.record_execution(record)
-
-        import os
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        rendered_process_name = self._render_string(self.process.name, record.parameters_used)
-        safe_name = rendered_process_name.replace(' ', '_')
-
-        exported_files = []
-        excel_folder = self.current_export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
-        csv_folder = self.current_export_options.get('csv_path') or getattr(self.process, 'auto_export_csv_folder', None)
-        attach_excel = self.current_export_options.get('attach_excel', True)
-        attach_csv = self.current_export_options.get('attach_csv', True)
-
-        # --- Auto-export Excel: un archivo por tabla en la misma carpeta ---
-        if excel_folder and has_data:
-            for result in results:
-                df = result["df"]
-                if df.empty:
-                    continue
-                export_name_template = result.get("export_name")
-                if export_name_template:
-                    filename = self._render_string(export_name_template, record.parameters_used) + ".xlsx"
-                else:
-                    safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
-                    filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
-                export_path = os.path.join(excel_folder, filename)
-                try:
-                    self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
-                    self.console.append_log(f"✅ Excel guardado: {export_path}")
-                    if attach_excel:
-                        exported_files.append(export_path)
-                except Exception as exc:
-                    self.console.append_log(f"❌ Error al guardar Excel ({result['label']}): {str(exc)}")
-
-        # --- Auto-export CSV: un archivo por tabla en la misma carpeta ---
-        if csv_folder and has_data:
-            for result in results:
-                df = result["df"]
-                if df.empty:
-                    continue
-                export_name_template = result.get("export_name")
-                if export_name_template:
-                    filename = self._render_string(export_name_template, record.parameters_used) + ".csv"
-                else:
-                    safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
-                    filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
-                export_path = os.path.join(csv_folder, filename)
-                try:
-                    self.csv_exporter.export(df, export_path)
-                    self.console.append_log(f"✅ CSV guardado: {export_path}")
-                    if attach_csv:
-                        exported_files.append(export_path)
-                except Exception as exc:
-                    self.console.append_log(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
-
-        if getattr(self.process, 'send_email', False) and self.email_input:
-            to_addresses = self.email_input.text().strip()
-            if to_addresses:
-                self.console.append_log(f"Enviando correo a: {to_addresses}...")
-
-                subject = getattr(self.process, 'email_subject', f"Resultados: {self.process.name}")
-                if not subject:
-                    subject = f"Resultados: {self.process.name}"
-
-                total_rows = sum(r["df"].shape[0] for r in results)
-                html_body = f"<p>Adjunto los resultados del proceso <b>{self.process.name}</b>.</p><p>Filas generadas: {total_rows}</p>"
-
-                if getattr(self.process, 'email_template', None):
-                    template_path = self.process.folder / self.process.email_template
-                    if template_path.exists():
-                        try:
-                            with open(template_path, 'r', encoding='utf-8') as f:
-                                html_body = f.read()
-                            html_body = html_body.replace("{proceso_nombre}", self.process.name)
-                            html_body = html_body.replace("{fecha}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                            html_body = html_body.replace("{filas}", str(total_rows))
-                            for param_name, param_value in record.parameters_used.items():
-                                html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
-                        except Exception as exc:
-                            self.console.append_log(f"❌ Error leyendo plantilla de correo: {str(exc)}")
-
-                try:
-                    self.email_sender.send_email(to_addresses, subject, html_body, exported_files)
-                    self.console.append_log("✅ Correo enviado exitosamente.")
-                except Exception as exc:
-                    self.console.append_log(f"❌ Error al enviar correo: {str(exc)}")
 
     def _on_failed(self, message: str, record):
         self.run_btn.setEnabled(True)
