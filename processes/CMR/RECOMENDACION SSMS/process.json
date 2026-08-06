@@ -1,0 +1,73 @@
+{
+  "name": "Recomendación SSMM (CDV)",
+  "module": "CMR",
+  "description": "Genera bases de email y SMS para clientes con recomendación de tienda favorita SSMM (WONG, METRO, METRO_ALMACEN), segmentando por uso de TC Cencosud en compras SSMM.",
+  "parameters": [
+    {
+      "name": "DIA_SEMINI",
+      "label": "Lunes de la semana de envío",
+      "type": "date",
+      "format": "yyyyMMdd",
+      "required": true
+    },
+    {
+      "name": "COD_MES",
+      "label": "Mes actual de campaña",
+      "type": "month",
+      "format": "yyyyMM",
+      "default": "current",
+      "required": true
+    }
+  ],
+  "final_tables": [
+    {
+      "table": "##EMAIL_SI_TC_WONG",
+      "label": "EMAIL_SI_TC_WONG",
+      "export_name": "{DIA_SEMINI}_SSMM_SiTC_WONG"
+    },
+    {
+      "table": "##EMAIL_SI_TC_METRO",
+      "label": "EMAIL_SI_TC_METRO",
+      "export_name": "{DIA_SEMINI}_SSMM_SiTC_METRO"
+    },
+    {
+      "table": "##EMAIL_SI_TC_METRO_ALMACEN",
+      "label": "EMAIL_SI_TC_METRO_ALMACEN",
+      "export_name": "{DIA_SEMINI}_SSMM_SiTC_METRO_ALMACEN"
+    },
+    {
+      "table": "##EMAIL_NO_TC_WONG",
+      "label": "EMAIL_NO_TC_WONG",
+      "export_name": "{DIA_SEMINI}_SSMM_NoTC_WONG"
+    },
+    {
+      "table": "##EMAIL_NO_TC_METRO",
+      "label": "EMAIL_NO_TC_METRO",
+      "export_name": "{DIA_SEMINI}_SSMM_NoTC_METRO"
+    },
+    {
+      "table": "##EMAIL_NO_TC_METRO_ALMACEN",
+      "label": "EMAIL_NO_TC_METRO_ALMACEN",
+      "export_name": "{DIA_SEMINI}_SSMM_NoTC_METRO_ALMACEN"
+    },
+    {
+      "table": "##SMS_TODOS",
+      "label": "SMS_TODOS",
+      "export_name": "SMS_ SSMM_TC_{DIA_SEMINI}"
+    }
+  ],
+  "show_preview": true,
+  "export_excel": true,
+  "auto_export_folder": "C:\\app",
+  "export_csv": true,
+  "auto_export_csv_folder": "C:\\app",
+  "send_email": false,
+  "email_default_to": "marcelo.nunez@cencosudscotiabank.pe",
+  "email_subject": "Recomendación SSMM",
+  "email_template": "template.html",
+  "send_emblue": true,
+  "emblue_id_cuenta": 1,
+  "emblue_carpeta": "upload",
+  "emblue_flg_dropeo": 0,
+  "emblue_flg_fecha_base": 0
+}

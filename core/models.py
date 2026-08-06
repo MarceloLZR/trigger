@@ -91,6 +91,16 @@ class ProcessDefinition:
     email_default_to: Optional[str] = None
     email_subject: Optional[str] = None
     folder: Optional[Path] = None
+    
+    # Emblue Settings
+    send_emblue: bool = False
+    emblue_id_cuenta: Optional[int] = None
+    emblue_carpeta: Optional[str] = None
+    emblue_usuario: Optional[str] = None
+    emblue_pwd: Optional[str] = None
+    emblue_host: Optional[str] = None
+    emblue_flg_dropeo: int = 0
+    emblue_flg_fecha_base: int = 0
 
     @property
     def final_table(self) -> str:
@@ -128,6 +138,14 @@ class ProcessDefinition:
             email_default_to=data.get("email_default_to"),
             email_subject=data.get("email_subject"),
             folder=folder,
+            send_emblue=data.get("send_emblue", False),
+            emblue_id_cuenta=data.get("emblue_id_cuenta"),
+            emblue_carpeta=data.get("emblue_carpeta"),
+            emblue_usuario=data.get("emblue_usuario"),
+            emblue_pwd=data.get("emblue_pwd"),
+            emblue_host=data.get("emblue_host"),
+            emblue_flg_dropeo=data.get("emblue_flg_dropeo", 0),
+            emblue_flg_fecha_base=data.get("emblue_flg_fecha_base", 0),
         )
 
 

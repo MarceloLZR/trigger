@@ -92,6 +92,9 @@ class ProcessRunView(QWidget):
         self.email_container = QVBoxLayout()
         root.addLayout(self.email_container)
 
+        self.emblue_container = QVBoxLayout()
+        root.addLayout(self.emblue_container)
+
         action_row = QHBoxLayout()
         self.run_btn = QPushButton("▶ Ejecutar")
         self.run_btn.setObjectName("PrimaryButton")
@@ -158,6 +161,11 @@ class ProcessRunView(QWidget):
                 
         while self.email_container.count():
             item = self.email_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+                
+        while self.emblue_container.count():
+            item = self.emblue_container.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
@@ -230,6 +238,33 @@ class ProcessRunView(QWidget):
             group_box.setLayout(layout)
             self.email_container.addWidget(group_box)
 
+        # Emblue settings
+        self.emblue_inputs = {}
+        if getattr(process, 'send_emblue', False):
+            emblue_gb = QGroupBox("Configuración de Envío a Emblue SFTP")
+            emblue_layout = QFormLayout()
+            
+            self.emblue_inputs['id_cuenta'] = QLineEdit()
+            self.emblue_inputs['id_cuenta'].setText(str(last_export_opts.get('emblue_id_cuenta', process.emblue_id_cuenta or '')))
+            emblue_layout.addRow("ID Cuenta:", self.emblue_inputs['id_cuenta'])
+            
+            self.emblue_inputs['carpeta'] = QLineEdit()
+            self.emblue_inputs['carpeta'].setText(str(last_export_opts.get('emblue_carpeta', process.emblue_carpeta or '')))
+            emblue_layout.addRow("Carpeta Emblue:", self.emblue_inputs['carpeta'])
+            
+            self.emblue_inputs['flg_dropeo'] = QCheckBox("Dropear tabla luego del envío")
+            flg_dropeo = bool(last_export_opts.get('emblue_flg_dropeo', process.emblue_flg_dropeo))
+            self.emblue_inputs['flg_dropeo'].setChecked(flg_dropeo)
+            emblue_layout.addRow("", self.emblue_inputs['flg_dropeo'])
+
+            self.emblue_inputs['flg_fecha_base'] = QCheckBox("Enviar con fecha base (Generar XML)")
+            flg_fecha_base = bool(last_export_opts.get('emblue_flg_fecha_base', process.emblue_flg_fecha_base))
+            self.emblue_inputs['flg_fecha_base'].setChecked(flg_fecha_base)
+            emblue_layout.addRow("", self.emblue_inputs['flg_fecha_base'])
+
+            emblue_gb.setLayout(emblue_layout)
+            self.emblue_container.addWidget(emblue_gb)
+
     def _browse_folder(self, input_key: str):
         current_path = self.export_inputs[input_key].text()
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta", current_path)
@@ -265,7 +300,12 @@ class ProcessRunView(QWidget):
             "csv_path": self.export_inputs['csv_path'].text() if 'csv_path' in self.export_inputs else None,
             "email_to": self.email_input.text() if self.email_input else None,
             "attach_excel": self.attach_excel_cb.isChecked() if getattr(self, 'attach_excel_cb', None) else False,
-            "attach_csv": self.attach_csv_cb.isChecked() if getattr(self, 'attach_csv_cb', None) else False
+            "attach_csv": self.attach_csv_cb.isChecked() if getattr(self, 'attach_csv_cb', None) else False,
+            
+            "emblue_id_cuenta": self.emblue_inputs['id_cuenta'].text() if 'id_cuenta' in self.emblue_inputs else None,
+            "emblue_carpeta": self.emblue_inputs['carpeta'].text() if 'carpeta' in self.emblue_inputs else None,
+            "emblue_flg_dropeo": 1 if ('flg_dropeo' in self.emblue_inputs and self.emblue_inputs['flg_dropeo'].isChecked()) else 0,
+            "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0
         }
 
         self.worker = ProcessWorker(

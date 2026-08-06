@@ -211,6 +211,96 @@ class ProcessWorker(QThread):
                         except Exception as exc:
                             self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
                             
+            # Emblue
+            if getattr(self.process, 'send_emblue', False) and has_data:
+                self.log.emit("Iniciando envío a Emblue SFTP...")
+                try:
+                    from infrastructure.emblue_service import EmblueService
+                    import tempfile
+                    
+                    emblue_service = EmblueService(self.connection_provider)
+                    emblue_id_cuenta = self.export_options.get('emblue_id_cuenta')
+                    emblue_carpeta = self.export_options.get('emblue_carpeta')
+                    flg_dropeo = self.export_options.get('emblue_flg_dropeo', 0)
+                    flg_fecha_base = self.export_options.get('emblue_flg_fecha_base', 0)
+                    
+                    if not emblue_id_cuenta:
+                        self.log.emit("⚠️ Faltan el ID de cuenta de Emblue. Saltando envío.")
+                    else:
+                        emblue_host, emblue_usuario, emblue_pwd = emblue_service.obtener_credenciales(int(emblue_id_cuenta))
+                        if not all([emblue_host, emblue_usuario, emblue_pwd]):
+                            self.log.emit("⚠️ No se encontraron credenciales en DM.CUENTAS_EMBLUE para el ID indicado. Saltando envío.")
+                        else:
+                            carpeta_remota = emblue_service.armar_carpeta_emblue(emblue_carpeta)
+
+                            # Tomamos el primer resultado que tenga datos
+                            for result in results:
+                                df = result["df"]
+                                if df.empty:
+                                    continue
+
+                                rendered_process_name = self._render_string(self.process.name, record.parameters_used)
+                                # Limpiar nombre para archivo
+                                safe_name = rendered_process_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+
+                                fd, temp_csv_path = tempfile.mkstemp(suffix=".csv")
+                                os.close(fd)
+
+                                try:
+                                    df.to_csv(temp_csv_path, sep=';', index=False, encoding='utf-8')
+
+                                    archivo_csv_remoto = carpeta_remota + safe_name + ".csv"
+                                    emblue_service.subir_sftp(
+                                        servidor=emblue_host,
+                                        usuario=emblue_usuario,
+                                        contrasena=emblue_pwd,
+                                        archivo_local=temp_csv_path,
+                                        archivo_remoto=archivo_csv_remoto,
+                                        logger=self.log.emit
+                                    )
+
+                                    # Si pidieron flg_fecha_base, subimos XML también (plantilla base vacía)
+                                    if flg_fecha_base:
+                                        fd_xml, temp_xml_path = tempfile.mkstemp(suffix=".xml")
+                                        with os.fdopen(fd_xml, 'w') as f:
+                                            f.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root></root>")
+
+                                        try:
+                                            archivo_xml_remoto = carpeta_remota + safe_name + ".xml"
+                                            emblue_service.subir_sftp(
+                                                servidor=emblue_host,
+                                                usuario=emblue_usuario,
+                                                contrasena=emblue_pwd,
+                                                archivo_local=temp_xml_path,
+                                                archivo_remoto=archivo_xml_remoto,
+                                                logger=self.log.emit
+                                            )
+                                        finally:
+                                            if os.path.exists(temp_xml_path):
+                                                os.remove(temp_xml_path)
+
+                                    # Registrar en BD
+                                    tabla_origen = self.process.final_tables[0].table
+                                    emblue_service.registrar_y_marcar_enviado(
+                                        nombre_campana=rendered_process_name,
+                                        tabla=tabla_origen,
+                                        flg_dropeo=flg_dropeo,
+                                        flg_fecha_base=flg_fecha_base,
+                                        id_cuenta_emblue=emblue_id_cuenta,
+                                        carpeta_emblue=emblue_carpeta,
+                                        logger=self.log.emit
+                                    )
+
+                                finally:
+                                    if os.path.exists(temp_csv_path):
+                                        os.remove(temp_csv_path)
+
+                                # Solo subimos el primer resultado a Emblue para evitar sobreescribir con la misma campaña
+                                break 
+                            
+                except Exception as exc:
+                    self.log.emit(f"❌ Error en proceso Emblue: {str(exc)}")
+
             # Email
             to_addresses = self.export_options.get('email_to')
             if getattr(self.process, 'send_email', False) and to_addresses and self.email_sender:

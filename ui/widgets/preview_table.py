@@ -82,7 +82,6 @@ class PreviewTableWidget(QWidget):
         self._df = df
         self.model.set_dataframe(df)
         self.row_count_label.setText(f"{len(df):,} registros".replace(",", "."))
-        self.table_view.resizeColumnsToContents()
 
     def _on_search(self, text: str):
         self.proxy.setFilterFixedString(text)
