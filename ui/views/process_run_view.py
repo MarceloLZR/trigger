@@ -267,17 +267,47 @@ class ProcessRunView(QWidget):
 
         # Password protection
         self.password_input = None
-        if getattr(process, 'export_password_enabled', False):
+        self.table_password_inputs = {}
+        self.password_fields_list = []
+        
+        has_table_passwords = any(getattr(ft, 'password', None) for ft in getattr(process, 'final_tables', []))
+        
+        if getattr(process, 'export_password_enabled', False) or has_table_passwords:
             pwd_gb = QGroupBox("Protección con Contraseña")
             pwd_layout = QFormLayout()
-            self.password_input = QLineEdit()
-            self.password_input.setEchoMode(QLineEdit.Password)
-            self.password_input.setPlaceholderText("Dejar en blanco para no proteger")
-            default_pwd = last_export_opts.get('export_password', process.export_password_default or '')
-            self.password_input.setText(str(default_pwd))
-            pwd_layout.addRow("Contraseña del archivo:", self.password_input)
+            
+            self.show_pwd_cb = QCheckBox("Mostrar contraseñas")
+            self.show_pwd_cb.stateChanged.connect(self._toggle_passwords)
+            pwd_layout.addRow("", self.show_pwd_cb)
+
+            if getattr(process, 'export_password_enabled', False):
+                self.password_input = QLineEdit()
+                self.password_input.setEchoMode(QLineEdit.Password)
+                self.password_input.setPlaceholderText("Contraseña general (Dejar en blanco para no proteger)")
+                default_pwd = last_export_opts.get('export_password', process.export_password_default or '')
+                self.password_input.setText(str(default_pwd))
+                pwd_layout.addRow("Contraseña General:", self.password_input)
+                self.password_fields_list.append(self.password_input)
+
+            if getattr(process, 'final_tables', None):
+                for ft in process.final_tables:
+                    if getattr(ft, 'password', None):
+                        table_pwd_input = QLineEdit()
+                        table_pwd_input.setEchoMode(QLineEdit.Password)
+                        table_pwd_dict = last_export_opts.get('table_passwords', {})
+                        default_table_pwd = table_pwd_dict.get(ft.table, ft.password)
+                        table_pwd_input.setText(str(default_table_pwd))
+                        pwd_layout.addRow(f"Contraseña para {ft.label}:", table_pwd_input)
+                        self.table_password_inputs[ft.table] = table_pwd_input
+                        self.password_fields_list.append(table_pwd_input)
+
             pwd_gb.setLayout(pwd_layout)
             self.emblue_container.addWidget(pwd_gb)
+
+    def _toggle_passwords(self, state):
+        echo_mode = QLineEdit.Normal if state else QLineEdit.Password
+        for field in self.password_fields_list:
+            field.setEchoMode(echo_mode)
 
     def _browse_folder(self, input_key: str):
         current_path = self.export_inputs[input_key].text()
@@ -322,6 +352,7 @@ class ProcessRunView(QWidget):
             "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0,
             
             "export_password": self.password_input.text() if self.password_input else None,
+            "table_passwords": {k: v.text() for k, v in self.table_password_inputs.items()} if hasattr(self, 'table_password_inputs') else {}
         }
 
         self.worker = ProcessWorker(

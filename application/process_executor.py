@@ -212,7 +212,12 @@ class ProcessWorker(QThread):
                     # ── Effective settings: tabla > proceso ────────────────────────
                     eff_excel_folder = (ft.export_excel_folder if ft else None) or proc_excel_folder
                     eff_csv_folder   = (ft.export_csv_folder   if ft else None) or proc_csv_folder
-                    eff_password     = (ft.password if ft else None) or proc_password
+                    
+                    table_pwd_override = self.export_options.get('table_passwords', {}).get(ft.table) if ft else None
+                    if table_pwd_override is not None:
+                        eff_password = table_pwd_override or proc_password
+                    else:
+                        eff_password = (ft.password if ft else None) or proc_password
 
                     # send_emblue: None en tabla → hereda proceso; True/False → override
                     if ft is not None and ft.send_emblue is not None:
