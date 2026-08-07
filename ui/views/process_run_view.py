@@ -265,6 +265,20 @@ class ProcessRunView(QWidget):
             emblue_gb.setLayout(emblue_layout)
             self.emblue_container.addWidget(emblue_gb)
 
+        # Password protection
+        self.password_input = None
+        if getattr(process, 'export_password_enabled', False):
+            pwd_gb = QGroupBox("Protección con Contraseña")
+            pwd_layout = QFormLayout()
+            self.password_input = QLineEdit()
+            self.password_input.setEchoMode(QLineEdit.Password)
+            self.password_input.setPlaceholderText("Dejar en blanco para no proteger")
+            default_pwd = last_export_opts.get('export_password', process.export_password_default or '')
+            self.password_input.setText(str(default_pwd))
+            pwd_layout.addRow("Contraseña del archivo:", self.password_input)
+            pwd_gb.setLayout(pwd_layout)
+            self.emblue_container.addWidget(pwd_gb)
+
     def _browse_folder(self, input_key: str):
         current_path = self.export_inputs[input_key].text()
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta", current_path)
@@ -305,7 +319,9 @@ class ProcessRunView(QWidget):
             "emblue_id_cuenta": self.emblue_inputs['id_cuenta'].text() if 'id_cuenta' in self.emblue_inputs else None,
             "emblue_carpeta": self.emblue_inputs['carpeta'].text() if 'carpeta' in self.emblue_inputs else None,
             "emblue_flg_dropeo": 1 if ('flg_dropeo' in self.emblue_inputs and self.emblue_inputs['flg_dropeo'].isChecked()) else 0,
-            "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0
+            "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0,
+            
+            "export_password": self.password_input.text() if self.password_input else None,
         }
 
         self.worker = ProcessWorker(

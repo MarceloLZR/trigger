@@ -140,7 +140,7 @@ class ProcessWorker(QThread):
                     f"SELECT * FROM {ft.table}",
                     conn,
                 )
-                results.append({"label": ft.label, "df": df, "export_name": ft.export_name})
+                results.append({"label": ft.label, "df": df, "export_name": ft.export_name, "final_table": ft})
 
             total_rows = sum(r["df"].shape[0] for r in results)
             record.row_count = total_rows
@@ -156,150 +156,155 @@ class ProcessWorker(QThread):
             # --- POST PROCESSING: EXPORTS & EMAIL ---
             has_data = any(not r["df"].empty for r in results)
             exported_files = []
-            
+
             if has_data:
+                import tempfile
+                from infrastructure.emblue_service import EmblueService
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 rendered_process_name = self._render_string(self.process.name, record.parameters_used)
-                safe_name = rendered_process_name.replace(' ', '_')
-                
-                excel_folder = self.export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
-                csv_folder = self.export_options.get('csv_path') or getattr(self.process, 'auto_export_csv_folder', None)
-                attach_excel = self.export_options.get('attach_excel', True)
-                attach_csv = self.export_options.get('attach_csv', True)
-                
-                # Excel
-                if excel_folder and self.excel_exporter:
-                    self.log.emit("Guardando archivos Excel...")
-                    for result in results:
-                        df = result["df"]
-                        if df.empty:
-                            continue
-                        export_name_template = result.get("export_name")
-                        if export_name_template:
-                            filename = self._render_string(export_name_template, record.parameters_used) + ".xlsx"
-                        else:
-                            safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
-                            filename = f"{safe_name}_{safe_label}_{timestamp}.xlsx"
-                        export_path = os.path.join(excel_folder, filename)
+                safe_proc_name = rendered_process_name.replace(' ', '_')
+
+                # Process-level defaults (from UI options + process definition)
+                proc_excel_folder = self.export_options.get('excel_path') or getattr(self.process, 'auto_export_folder', None)
+                proc_csv_folder   = self.export_options.get('csv_path')   or getattr(self.process, 'auto_export_csv_folder', None)
+                attach_excel      = self.export_options.get('attach_excel', True)
+                attach_csv        = self.export_options.get('attach_csv', True)
+                proc_password     = self.export_options.get('export_password') or ''
+                proc_send_emblue  = getattr(self.process, 'send_emblue', False)
+                proc_emblue_id    = self.export_options.get('emblue_id_cuenta')
+                proc_emblue_carpeta = self.export_options.get('emblue_carpeta')
+                proc_flg_dropeo   = self.export_options.get('emblue_flg_dropeo', 0)
+                proc_flg_fecha_base = self.export_options.get('emblue_flg_fecha_base', 0)
+
+                # Cache de credenciales Emblue por ID de cuenta (evitar consultas repetidas)
+                _emblue_creds_cache: dict = {}
+                _emblue_service = EmblueService(self.connection_provider)
+
+                def _get_emblue_creds(id_cuenta):
+                    if id_cuenta not in _emblue_creds_cache:
+                        _emblue_creds_cache[id_cuenta] = _emblue_service.obtener_credenciales(int(id_cuenta))
+                    return _emblue_creds_cache[id_cuenta]
+
+                # ── Por-tabla loop ──────────────────────────────────────────────────
+                for result in results:
+                    df = result["df"]
+                    ft = result.get("final_table")   # FinalTable | None
+                    if df.empty:
+                        continue
+
+                    export_name_template = result.get("export_name")
+                    if export_name_template:
+                        base_filename = self._render_string(export_name_template, record.parameters_used)
+                    else:
+                        safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                        base_filename = f"{safe_proc_name}_{safe_label}_{timestamp}"
+
+                    safe_filename = (
+                        base_filename
+                        .replace('/', '_').replace('\\', '_')
+                        .replace(':', '_').replace('*', '_')
+                        .replace('?', '_').replace('"', '_')
+                        .replace('<', '_').replace('>', '_')
+                        .replace('|', '_')
+                    )
+
+                    # ── Effective settings: tabla > proceso ────────────────────────
+                    eff_excel_folder = (ft.export_excel_folder if ft else None) or proc_excel_folder
+                    eff_csv_folder   = (ft.export_csv_folder   if ft else None) or proc_csv_folder
+                    eff_password     = (ft.password if ft else None) or proc_password
+
+                    # send_emblue: None en tabla → hereda proceso; True/False → override
+                    if ft is not None and ft.send_emblue is not None:
+                        eff_send_emblue = ft.send_emblue
+                    else:
+                        eff_send_emblue = proc_send_emblue
+
+                    eff_emblue_id      = (ft.emblue_id_cuenta if ft else None) or proc_emblue_id
+                    eff_emblue_carpeta = (ft.emblue_carpeta   if ft else None) or proc_emblue_carpeta
+                    eff_flg_dropeo     = (ft.emblue_flg_dropeo   if ft else proc_flg_dropeo)
+                    eff_flg_fecha_base = (ft.emblue_flg_fecha_base if ft else proc_flg_fecha_base)
+
+                    # ── Excel ────────────────────────────────────────────────────
+                    if eff_excel_folder and self.excel_exporter:
+                        export_path = os.path.join(eff_excel_folder, safe_filename + ".xlsx")
                         try:
                             self.excel_exporter.export(df, export_path, sheet_name=result["label"][:31])
-                            self.log.emit(f"✅ Excel guardado: {export_path}")
+                            if eff_password:
+                                export_path = self._protect_excel(export_path, eff_password)
+                                self.log.emit(f"🔒 Excel protegido: {export_path}")
+                            else:
+                                self.log.emit(f"✅ Excel guardado: {export_path}")
                             if attach_excel:
                                 exported_files.append(export_path)
                         except Exception as exc:
-                            self.log.emit(f"❌ Error al guardar Excel ({result['label']}): {str(exc)}")
-                
-                # CSV
-                if csv_folder and self.csv_exporter:
-                    self.log.emit("Guardando archivos CSV...")
-                    for result in results:
-                        df = result["df"]
-                        if df.empty:
-                            continue
-                        export_name_template = result.get("export_name")
-                        if export_name_template:
-                            filename = self._render_string(export_name_template, record.parameters_used) + ".csv"
-                        else:
-                            safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
-                            filename = f"{safe_name}_{safe_label}_{timestamp}.csv"
-                        export_path = os.path.join(csv_folder, filename)
+                            self.log.emit(f"❌ Error al guardar Excel ({result['label']}): {exc}")
+
+                    # ── CSV ───────────────────────────────────────────────────────
+                    if eff_csv_folder and self.csv_exporter:
+                        export_path = os.path.join(eff_csv_folder, safe_filename + ".csv")
                         try:
                             self.csv_exporter.export(df, export_path)
-                            self.log.emit(f"✅ CSV guardado: {export_path}")
+                            if eff_password:
+                                export_path = self._protect_csv_zip(export_path, eff_password)
+                                self.log.emit(f"🔒 CSV protegido como ZIP: {export_path}")
+                            else:
+                                self.log.emit(f"✅ CSV guardado: {export_path}")
                             if attach_csv:
                                 exported_files.append(export_path)
                         except Exception as exc:
-                            self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {str(exc)}")
-                            
-            # Emblue
-            if getattr(self.process, 'send_emblue', False) and has_data:
-                self.log.emit("Iniciando envío a Emblue SFTP...")
-                try:
-                    from infrastructure.emblue_service import EmblueService
-                    import tempfile
-                    
-                    emblue_service = EmblueService(self.connection_provider)
-                    emblue_id_cuenta = self.export_options.get('emblue_id_cuenta')
-                    emblue_carpeta = self.export_options.get('emblue_carpeta')
-                    flg_dropeo = self.export_options.get('emblue_flg_dropeo', 0)
-                    flg_fecha_base = self.export_options.get('emblue_flg_fecha_base', 0)
-                    
-                    if not emblue_id_cuenta:
-                        self.log.emit("⚠️ Faltan el ID de cuenta de Emblue. Saltando envío.")
-                    else:
-                        emblue_host, emblue_usuario, emblue_pwd = emblue_service.obtener_credenciales(int(emblue_id_cuenta))
-                        if not all([emblue_host, emblue_usuario, emblue_pwd]):
-                            self.log.emit("⚠️ No se encontraron credenciales en DM.CUENTAS_EMBLUE para el ID indicado. Saltando envío.")
-                        else:
-                            carpeta_remota = emblue_service.armar_carpeta_emblue(emblue_carpeta)
+                            self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {exc}")
 
-                            # Tomamos el primer resultado que tenga datos
-                            for result in results:
-                                df = result["df"]
-                                if df.empty:
-                                    continue
-
-                                rendered_process_name = self._render_string(self.process.name, record.parameters_used)
-                                # Limpiar nombre para archivo
-                                safe_name = rendered_process_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
-
-                                fd, temp_csv_path = tempfile.mkstemp(suffix=".csv")
+                    # ── Emblue ────────────────────────────────────────────────────
+                    if eff_send_emblue and eff_emblue_id:
+                        try:
+                            emblue_host, emblue_user, emblue_pwd = _get_emblue_creds(eff_emblue_id)
+                            if not all([emblue_host, emblue_user, emblue_pwd]):
+                                self.log.emit(f"⚠️ No se encontraron credenciales Emblue (ID {eff_emblue_id}) para '{result['label']}'. Saltando.")
+                            else:
+                                carpeta_remota = _emblue_service.armar_carpeta_emblue(eff_emblue_carpeta)
+                                fd, temp_csv = tempfile.mkstemp(suffix=".csv")
                                 os.close(fd)
-
                                 try:
-                                    df.to_csv(temp_csv_path, sep=';', index=False, encoding='utf-8')
-
-                                    archivo_csv_remoto = carpeta_remota + safe_name + ".csv"
-                                    emblue_service.subir_sftp(
-                                        servidor=emblue_host,
-                                        usuario=emblue_usuario,
+                                    df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
+                                    archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
+                                    _emblue_service.subir_sftp(
+                                        servidor=emblue_host, usuario=emblue_user,
                                         contrasena=emblue_pwd,
-                                        archivo_local=temp_csv_path,
-                                        archivo_remoto=archivo_csv_remoto,
+                                        archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
                                         logger=self.log.emit
                                     )
-
-                                    # Si pidieron flg_fecha_base, subimos XML también (plantilla base vacía)
-                                    if flg_fecha_base:
-                                        fd_xml, temp_xml_path = tempfile.mkstemp(suffix=".xml")
-                                        with os.fdopen(fd_xml, 'w') as f:
-                                            f.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root></root>")
-
+                                    if eff_flg_fecha_base:
+                                        fd_xml, temp_xml = tempfile.mkstemp(suffix=".xml")
+                                        with os.fdopen(fd_xml, 'w') as fx:
+                                            fx.write('<?xml version="1.0" encoding="utf-8"?>\n<root></root>')
                                         try:
-                                            archivo_xml_remoto = carpeta_remota + safe_name + ".xml"
-                                            emblue_service.subir_sftp(
-                                                servidor=emblue_host,
-                                                usuario=emblue_usuario,
+                                            _emblue_service.subir_sftp(
+                                                servidor=emblue_host, usuario=emblue_user,
                                                 contrasena=emblue_pwd,
-                                                archivo_local=temp_xml_path,
-                                                archivo_remoto=archivo_xml_remoto,
+                                                archivo_local=temp_xml,
+                                                archivo_remoto=carpeta_remota + safe_filename + ".xml",
                                                 logger=self.log.emit
                                             )
                                         finally:
-                                            if os.path.exists(temp_xml_path):
-                                                os.remove(temp_xml_path)
-
+                                            if os.path.exists(temp_xml):
+                                                os.remove(temp_xml)
                                     # Registrar en BD
-                                    tabla_origen = self.process.final_tables[0].table
-                                    emblue_service.registrar_y_marcar_enviado(
+                                    tabla_bd = ft.table if ft else self.process.final_tables[0].table
+                                    _emblue_service.registrar_y_marcar_enviado(
                                         nombre_campana=rendered_process_name,
-                                        tabla=tabla_origen,
-                                        flg_dropeo=flg_dropeo,
-                                        flg_fecha_base=flg_fecha_base,
-                                        id_cuenta_emblue=emblue_id_cuenta,
-                                        carpeta_emblue=emblue_carpeta,
+                                        tabla=tabla_bd,
+                                        flg_dropeo=eff_flg_dropeo,
+                                        flg_fecha_base=eff_flg_fecha_base,
+                                        id_cuenta_emblue=eff_emblue_id,
+                                        carpeta_emblue=eff_emblue_carpeta,
                                         logger=self.log.emit
                                     )
-
                                 finally:
-                                    if os.path.exists(temp_csv_path):
-                                        os.remove(temp_csv_path)
-
-                                # Solo subimos el primer resultado a Emblue para evitar sobreescribir con la misma campaña
-                                break 
-                            
-                except Exception as exc:
-                    self.log.emit(f"❌ Error en proceso Emblue: {str(exc)}")
+                                    if os.path.exists(temp_csv):
+                                        os.remove(temp_csv)
+                        except Exception as exc:
+                            self.log.emit(f"❌ Error Emblue ({result['label']}): {exc}")
 
             # Email
             to_addresses = self.export_options.get('email_to')
@@ -400,3 +405,47 @@ class ProcessWorker(QThread):
             batches.append("\n".join(current))
 
         return batches
+
+    @staticmethod
+    def _protect_excel(path: str, password: str) -> str:
+        """
+        Encripta un archivo .xlsx existente con contraseña de apertura.
+        Usa msoffcrypto-tool para aplicar cifrado compatible con Office.
+        Devuelve la misma ruta (sobreescribe el archivo original).
+        """
+        import msoffcrypto
+        import tempfile
+
+        # Escribimos el archivo encriptado en un temporal y luego reemplazamos el original
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(tmp_fd)
+        try:
+            with open(path, "rb") as f_in:
+                office_file = msoffcrypto.OfficeFile(f_in)
+                office_file.load_key(password=password)
+                with open(tmp_path, "wb") as f_out:
+                    office_file.encrypt(password, f_out)
+            os.replace(tmp_path, path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+        return path
+
+    @staticmethod
+    def _protect_csv_zip(path: str, password: str) -> str:
+        """
+        Empaqueta el archivo CSV dentro de un ZIP cifrado con AES-256.
+        Elimina el CSV original y devuelve la ruta del ZIP generado.
+        """
+        import pyzipper
+
+        zip_path = path.replace(".csv", ".zip")
+        with pyzipper.AESZipFile(zip_path, "w",
+                                  compression=pyzipper.ZIP_DEFLATED,
+                                  encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(password.encode("utf-8"))
+            zf.write(path, arcname=os.path.basename(path))
+
+        os.remove(path)
+        return zip_path

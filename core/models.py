@@ -25,17 +25,51 @@ class ParameterType(str, Enum):
 
 @dataclass
 class FinalTable:
-    """Representa una tabla de resultado que el proceso genera."""
-    table: str    # nombre de la tabla temporal, p.ej. ##alpes
-    label: str    # etiqueta legible para UI/nombre de archivo
-    export_name: Optional[str] = None  # Nombre opcional para exportar archivos
+    """Representa una tabla de resultado que el proceso genera.
+
+    Cada tabla puede configurar de forma independiente:
+    - export_name     : nombre de archivo al exportar (soporta variables {param})
+    - password        : contraseña para proteger el archivo (visible en JSON)
+    - export_excel_folder : carpeta destino Excel de esta tabla (override del proceso)
+    - export_csv_folder   : carpeta destino CSV de esta tabla (override del proceso)
+    - send_emblue         : True/False/None — None hereda la config del proceso
+    - emblue_id_cuenta, emblue_carpeta, emblue_flg_dropeo, emblue_flg_fecha_base
+    """
+    table: str
+    label: str
+    export_name: Optional[str] = None
+
+    # Per-table file protection
+    password: Optional[str] = None
+
+    # Per-table routing overrides (None = usar el valor del proceso)
+    export_excel_folder: Optional[str] = None
+    export_csv_folder: Optional[str] = None
+
+    # Per-table Emblue overrides
+    send_emblue: Optional[bool] = None
+    emblue_id_cuenta: Optional[int] = None
+    emblue_carpeta: Optional[str] = None
+    emblue_flg_dropeo: int = 0
+    emblue_flg_fecha_base: int = 0
 
     @staticmethod
     def from_dict(data: dict) -> "FinalTable":
+        send_emblue = data.get("send_emblue")
+        if send_emblue is not None:
+            send_emblue = bool(send_emblue)
         return FinalTable(
             table=data["table"],
             label=data.get("label", data["table"]),
             export_name=data.get("export_name"),
+            password=data.get("password"),
+            export_excel_folder=data.get("export_excel_folder"),
+            export_csv_folder=data.get("export_csv_folder"),
+            send_emblue=send_emblue,
+            emblue_id_cuenta=data.get("emblue_id_cuenta"),
+            emblue_carpeta=data.get("emblue_carpeta"),
+            emblue_flg_dropeo=data.get("emblue_flg_dropeo", 0),
+            emblue_flg_fecha_base=data.get("emblue_flg_fecha_base", 0),
         )
 
 
@@ -102,6 +136,10 @@ class ProcessDefinition:
     emblue_flg_dropeo: int = 0
     emblue_flg_fecha_base: int = 0
 
+    # Password protection for generated files
+    export_password_enabled: bool = False
+    export_password_default: Optional[str] = None
+
     @property
     def final_table(self) -> str:
         """Compatibilidad con código antiguo que accede a final_table (str)."""
@@ -146,6 +184,8 @@ class ProcessDefinition:
             emblue_host=data.get("emblue_host"),
             emblue_flg_dropeo=data.get("emblue_flg_dropeo", 0),
             emblue_flg_fecha_base=data.get("emblue_flg_fecha_base", 0),
+            export_password_enabled=data.get("export_password_enabled", False),
+            export_password_default=data.get("export_password_default"),
         )
 
 
