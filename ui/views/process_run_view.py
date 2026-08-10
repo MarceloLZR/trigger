@@ -15,7 +15,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
-    QTabWidget, QScrollArea, QFrame, QCheckBox
+    QTabWidget, QScrollArea, QFrame, QCheckBox, QComboBox
 )
 from PySide6.QtCore import Qt
 
@@ -265,49 +265,154 @@ class ProcessRunView(QWidget):
             emblue_gb.setLayout(emblue_layout)
             self.emblue_container.addWidget(emblue_gb)
 
-        # Password protection
+        # Configuración Global de Contraseña (Si aplica)
         self.password_input = None
-        self.table_password_inputs = {}
         self.password_fields_list = []
-        
-        has_table_passwords = any(getattr(ft, 'password', None) for ft in getattr(process, 'final_tables', []))
-        
-        if getattr(process, 'export_password_enabled', False) or has_table_passwords:
-            pwd_gb = QGroupBox("Protección con Contraseña")
+        if getattr(process, 'export_password_enabled', False):
+            pwd_gb = QGroupBox("Contraseña Global")
             pwd_layout = QFormLayout()
-            
-            self.show_pwd_cb = QCheckBox("Mostrar contraseñas")
-            self.show_pwd_cb.stateChanged.connect(self._toggle_passwords)
-            pwd_layout.addRow("", self.show_pwd_cb)
-
-            if getattr(process, 'export_password_enabled', False):
-                self.password_input = QLineEdit()
-                self.password_input.setEchoMode(QLineEdit.Password)
-                self.password_input.setPlaceholderText("Contraseña general (Dejar en blanco para no proteger)")
-                default_pwd = last_export_opts.get('export_password', process.export_password_default or '')
-                self.password_input.setText(str(default_pwd))
-                pwd_layout.addRow("Contraseña General:", self.password_input)
-                self.password_fields_list.append(self.password_input)
-
-            if getattr(process, 'final_tables', None):
-                for ft in process.final_tables:
-                    if getattr(ft, 'password', None):
-                        table_pwd_input = QLineEdit()
-                        table_pwd_input.setEchoMode(QLineEdit.Password)
-                        table_pwd_dict = last_export_opts.get('table_passwords', {})
-                        default_table_pwd = table_pwd_dict.get(ft.table, ft.password)
-                        table_pwd_input.setText(str(default_table_pwd))
-                        pwd_layout.addRow(f"Contraseña para {ft.label}:", table_pwd_input)
-                        self.table_password_inputs[ft.table] = table_pwd_input
-                        self.password_fields_list.append(table_pwd_input)
-
+            self.password_input = QLineEdit()
+            self.password_input.setEchoMode(QLineEdit.Password)
+            self.password_input.setPlaceholderText("Dejar en blanco para no proteger")
+            default_pwd = last_export_opts.get('export_password', process.export_password_default or '')
+            self.password_input.setText(str(default_pwd))
+            pwd_layout.addRow("Contraseña:", self.password_input)
+            self.password_fields_list.append(self.password_input)
             pwd_gb.setLayout(pwd_layout)
             self.emblue_container.addWidget(pwd_gb)
+
+        # Toggle Preview Option
+        self.show_preview_cb = QCheckBox("Auto cargar preview al finalizar")
+        self.show_preview_cb.setToolTip(
+            "Desmarcar para mostrar sólo nombres de tablas y cargar el preview sólo al hacer clic."
+        )
+        self.show_preview_cb.setChecked(last_export_opts.get('show_preview', getattr(process, 'show_preview', False)))
+        self.emblue_container.addWidget(self.show_preview_cb)
+
+        # Configuración por Tabla (Overrides)
+        self.table_ui_fields = {}
+        if getattr(process, 'final_tables', None) and len(process.final_tables) > 0:
+            tables_gb = QGroupBox("Configuración por Tabla (Overrides)")
+            tables_layout = QVBoxLayout()
+            
+            show_pwd_cb = QCheckBox("Mostrar contraseñas")
+            show_pwd_cb.stateChanged.connect(self._toggle_passwords)
+            tables_layout.addWidget(show_pwd_cb)
+
+            tables_tabs = QTabWidget()
+            table_overrides = last_export_opts.get('table_overrides', {})
+
+            for ft in process.final_tables:
+                tab_widget = QWidget()
+                tab_layout = QFormLayout()
+                ft_overrides = table_overrides.get(ft.table, {})
+
+                fields = {}
+
+                table_name_readonly = QLineEdit(ft.table)
+                table_name_readonly.setReadOnly(True)
+                tab_layout.addRow("Tabla destino:", table_name_readonly)
+                fields['table'] = table_name_readonly
+
+                table_label_readonly = QLineEdit(ft.label)
+                table_label_readonly.setReadOnly(True)
+                tab_layout.addRow("Etiqueta:", table_label_readonly)
+                fields['label'] = table_label_readonly
+
+                export_name_input = QLineEdit()
+                export_name_input.setPlaceholderText("Heredar nombre de exportación")
+                export_name_input.setText(ft_overrides.get('export_name', ft.export_name or ''))
+                tab_layout.addRow("Nombre de exportación:", export_name_input)
+                fields['export_name'] = export_name_input
+
+                # Excel Folder
+                excel_input = QLineEdit()
+                excel_input.setPlaceholderText("Heredar del proceso")
+                excel_input.setText(ft_overrides.get('export_excel_folder', ft.export_excel_folder or ''))
+                excel_layout = QHBoxLayout()
+                excel_layout.addWidget(excel_input)
+                browse_excel_btn = QPushButton("...")
+                browse_excel_btn.setFixedWidth(30)
+                browse_excel_btn.clicked.connect(lambda checked=False, inp=excel_input: self._browse_folder_for_input(inp))
+                excel_layout.addWidget(browse_excel_btn)
+                tab_layout.addRow("Ruta Excel:", excel_layout)
+                fields['export_excel_folder'] = excel_input
+
+                # CSV Folder
+                csv_input = QLineEdit()
+                csv_input.setPlaceholderText("Heredar del proceso")
+                csv_input.setText(ft_overrides.get('export_csv_folder', ft.export_csv_folder or ''))
+                csv_layout = QHBoxLayout()
+                csv_layout.addWidget(csv_input)
+                browse_csv_btn = QPushButton("...")
+                browse_csv_btn.setFixedWidth(30)
+                browse_csv_btn.clicked.connect(lambda checked=False, inp=csv_input: self._browse_folder_for_input(inp))
+                csv_layout.addWidget(browse_csv_btn)
+                tab_layout.addRow("Ruta CSV:", csv_layout)
+                fields['export_csv_folder'] = csv_input
+
+                # Password
+                pwd_input = QLineEdit()
+                pwd_input.setEchoMode(QLineEdit.Password)
+                pwd_input.setPlaceholderText("Heredar (Dejar vacío = Sin contraseña)")
+                pwd_input.setText(ft_overrides.get('password', ft.password or ''))
+                tab_layout.addRow("Contraseña:", pwd_input)
+                fields['password'] = pwd_input
+                self.password_fields_list.append(pwd_input)
+
+                # Emblue
+                send_emblue_cb = QComboBox()
+                send_emblue_cb.addItems(["Heredar", "Sí", "No"])
+                saved_send = ft_overrides.get('send_emblue', ft.send_emblue)
+                if saved_send is None:
+                    send_emblue_cb.setCurrentText("Heredar")
+                elif saved_send:
+                    send_emblue_cb.setCurrentText("Sí")
+                else:
+                    send_emblue_cb.setCurrentText("No")
+                tab_layout.addRow("Enviar a Emblue:", send_emblue_cb)
+                fields['send_emblue'] = send_emblue_cb
+
+                emblue_id = QLineEdit()
+                emblue_id.setPlaceholderText("Heredar del proceso")
+                emblue_id.setText(str(ft_overrides.get('emblue_id_cuenta', ft.emblue_id_cuenta or '')))
+                tab_layout.addRow("ID Cuenta Emblue:", emblue_id)
+                fields['emblue_id_cuenta'] = emblue_id
+
+                emblue_carpeta = QLineEdit()
+                emblue_carpeta.setPlaceholderText("Heredar del proceso")
+                emblue_carpeta.setText(ft_overrides.get('emblue_carpeta', ft.emblue_carpeta or ''))
+                tab_layout.addRow("Carpeta Emblue:", emblue_carpeta)
+                fields['emblue_carpeta'] = emblue_carpeta
+
+                emblue_dropeo_cb = QCheckBox("Dropear tabla luego del envío")
+                emblue_dropeo_cb.setChecked(bool(ft_overrides.get('emblue_flg_dropeo', ft.emblue_flg_dropeo)))
+                tab_layout.addRow("", emblue_dropeo_cb)
+                fields['emblue_flg_dropeo'] = emblue_dropeo_cb
+
+                emblue_fecha_cb = QCheckBox("Enviar con fecha base (Generar XML)")
+                emblue_fecha_cb.setChecked(bool(ft_overrides.get('emblue_flg_fecha_base', ft.emblue_flg_fecha_base)))
+                tab_layout.addRow("", emblue_fecha_cb)
+                fields['emblue_flg_fecha_base'] = emblue_fecha_cb
+
+                self.table_ui_fields[ft.table] = fields
+                tab_widget.setLayout(tab_layout)
+                tables_tabs.addTab(tab_widget, ft.label)
+
+            tables_layout.addWidget(tables_tabs)
+            tables_gb.setLayout(tables_layout)
+            self.emblue_container.addWidget(tables_gb)
 
     def _toggle_passwords(self, state):
         echo_mode = QLineEdit.Normal if state else QLineEdit.Password
         for field in self.password_fields_list:
             field.setEchoMode(echo_mode)
+
+    def _browse_folder_for_input(self, input_widget: QLineEdit):
+        current_path = input_widget.text()
+        folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta", current_path)
+        if folder:
+            input_widget.setText(folder)
 
     def _browse_folder(self, input_key: str):
         current_path = self.export_inputs[input_key].text()
@@ -352,7 +457,8 @@ class ProcessRunView(QWidget):
             "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0,
             
             "export_password": self.password_input.text() if self.password_input else None,
-            "table_passwords": {k: v.text() for k, v in self.table_password_inputs.items()} if hasattr(self, 'table_password_inputs') else {}
+            "show_preview": self.show_preview_cb.isChecked(),
+            "table_overrides": self._collect_table_overrides()
         }
 
         self.worker = ProcessWorker(
@@ -390,10 +496,30 @@ class ProcessRunView(QWidget):
 
         has_data = any(not r["df"].empty for r in results)
 
-        for result in results:
-            table_widget = PreviewTableWidget()
-            table_widget.set_dataframe(result["df"])
-            self.preview_tabs.addTab(table_widget, result["label"])
+        if not has_data:
+            self.console.append_log("⚠️ No se generaron datos en ninguna tabla.")
+        else:
+            show_preview = self.current_export_options.get("show_preview", True)
+            for r in results:
+                df = r["df"]
+                label = r["label"]
+
+                if df.empty:
+                    continue
+
+                if show_preview:
+                    preview_widget = PreviewTableWidget()
+                    preview_widget.set_dataframe(df)
+                    self.preview_tabs.addTab(preview_widget, label)
+                else:
+                    self._create_preview_tab(label, df)
+
+            if show_preview:
+                self.console.append_log("✅ Proceso finalizado. Resultados cargados en la vista previa.")
+            else:
+                self.console.append_log(
+                    "✅ Proceso finalizado. Las pestañas muestran sólo el nombre de cada tabla; haga clic en 'Cargar preview' para ver los datos."
+                )
 
         # Habilitar exportación manual solo si hay datos
         self.export_btn.setEnabled(self.process.export_excel and has_data)
@@ -401,6 +527,101 @@ class ProcessRunView(QWidget):
 
         record.export_options = self.current_export_options
         self.history_service.record_execution(record)
+
+    def _create_preview_tab(self, label: str, df: pd.DataFrame):
+        placeholder = QWidget()
+        placeholder.preview_df = df
+        placeholder.preview_label = label
+
+        layout = QVBoxLayout(placeholder)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        info = QLabel(
+            f"Tabla: {label}\nFilas: {len(df):,}\n\nHaga clic en el botón para cargar la vista previa de esta tabla."
+        )
+        info.setAlignment(Qt.AlignCenter)
+        info.setWordWrap(True)
+
+        load_button = QPushButton("Cargar preview")
+        load_button.setObjectName("PrimaryButton")
+        load_button.clicked.connect(lambda checked=False, widget=placeholder: self._load_preview_for_tab(widget))
+
+        layout.addStretch()
+        layout.addWidget(info)
+        layout.addWidget(load_button, alignment=Qt.AlignHCenter)
+        layout.addStretch()
+
+        self.preview_tabs.addTab(placeholder, label)
+
+    def _load_preview_for_tab(self, placeholder: QWidget):
+        index = self.preview_tabs.indexOf(placeholder)
+        if index < 0:
+            return
+
+        df = getattr(placeholder, 'preview_df', None)
+        label = getattr(placeholder, 'preview_label', self.preview_tabs.tabText(index))
+        if df is None:
+            return
+
+        preview_widget = PreviewTableWidget()
+        preview_widget.set_dataframe(df)
+
+        self.preview_tabs.removeTab(index)
+        self.preview_tabs.insertTab(index, preview_widget, label)
+        self.preview_tabs.setCurrentWidget(preview_widget)
+
+    def _collect_table_overrides(self) -> dict[str, dict[str, object]]:
+        overrides: dict[str, dict[str, object]] = {}
+        for table_name, fields in self.table_ui_fields.items():
+            table_data: dict[str, object] = {}
+
+            if 'export_name' in fields:
+                text = fields['export_name'].text().strip()
+                if text:
+                    table_data['export_name'] = text
+
+            if 'export_excel_folder' in fields:
+                text = fields['export_excel_folder'].text().strip()
+                if text:
+                    table_data['export_excel_folder'] = text
+
+            if 'export_csv_folder' in fields:
+                text = fields['export_csv_folder'].text().strip()
+                if text:
+                    table_data['export_csv_folder'] = text
+
+            if 'password' in fields:
+                text = fields['password'].text()
+                if text:
+                    table_data['password'] = text
+
+            if 'send_emblue' in fields:
+                send_value = fields['send_emblue'].currentText()
+                if send_value == 'Sí':
+                    table_data['send_emblue'] = True
+                elif send_value == 'No':
+                    table_data['send_emblue'] = False
+
+            if 'emblue_id_cuenta' in fields:
+                text = fields['emblue_id_cuenta'].text().strip()
+                if text:
+                    table_data['emblue_id_cuenta'] = text
+
+            if 'emblue_carpeta' in fields:
+                text = fields['emblue_carpeta'].text().strip()
+                if text:
+                    table_data['emblue_carpeta'] = text
+
+            if 'emblue_flg_dropeo' in fields:
+                table_data['emblue_flg_dropeo'] = 1 if fields['emblue_flg_dropeo'].isChecked() else 0
+
+            if 'emblue_flg_fecha_base' in fields:
+                table_data['emblue_flg_fecha_base'] = 1 if fields['emblue_flg_fecha_base'].isChecked() else 0
+
+            if table_data:
+                overrides[table_name] = table_data
+
+        return overrides
 
     def _on_failed(self, message: str, record):
         self.run_btn.setEnabled(True)

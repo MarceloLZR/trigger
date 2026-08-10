@@ -193,12 +193,18 @@ class ProcessWorker(QThread):
                     if df.empty:
                         continue
 
-                    export_name_template = result.get("export_name")
-                    if export_name_template:
-                        base_filename = self._render_string(export_name_template, record.parameters_used)
+                    t_overrides = self.export_options.get('table_overrides', {}).get(ft.table if ft else '', {})
+                    export_name_override = t_overrides.get('export_name')
+
+                    if export_name_override:
+                        base_filename = self._render_string(export_name_override, record.parameters_used)
                     else:
-                        safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
-                        base_filename = f"{safe_proc_name}_{safe_label}_{timestamp}"
+                        export_name_template = result.get("export_name")
+                        if export_name_template:
+                            base_filename = self._render_string(export_name_template, record.parameters_used)
+                        else:
+                            safe_label = self._render_string(result["label"], record.parameters_used).replace(' ', '_')
+                            base_filename = f"{safe_proc_name}_{safe_label}_{timestamp}"
 
                     safe_filename = (
                         base_filename
@@ -210,24 +216,20 @@ class ProcessWorker(QThread):
                     )
 
                     # ── Effective settings: tabla > proceso ────────────────────────
-                    eff_excel_folder = (ft.export_excel_folder if ft else None) or proc_excel_folder
-                    eff_csv_folder   = (ft.export_csv_folder   if ft else None) or proc_csv_folder
-                    
-                    table_pwd_override = self.export_options.get('table_passwords', {}).get(ft.table) if ft else None
-                    if table_pwd_override is not None:
-                        eff_password = table_pwd_override or proc_password
-                    else:
-                        eff_password = (ft.password if ft else None) or proc_password
+                    t_overrides = self.export_options.get('table_overrides', {}).get(ft.table if ft else '', {})
 
-                    # send_emblue: None en tabla → hereda proceso; True/False → override
-                    if ft is not None and ft.send_emblue is not None:
-                        eff_send_emblue = ft.send_emblue
-                    else:
-                        eff_send_emblue = proc_send_emblue
+                    def _eff(key, ft_val, proc_val):
+                        if key in t_overrides:
+                            return t_overrides[key]
+                        return ft_val if ft_val is not None else proc_val
 
-                    eff_emblue_id      = (ft.emblue_id_cuenta if ft else None) or proc_emblue_id
-                    eff_emblue_carpeta = (ft.emblue_carpeta   if ft else None) or proc_emblue_carpeta
-                    eff_flg_dropeo     = (ft.emblue_flg_dropeo   if ft else proc_flg_dropeo)
+                    eff_excel_folder = _eff('export_excel_folder', ft.export_excel_folder if ft else None, proc_excel_folder)
+                    eff_csv_folder   = _eff('export_csv_folder', ft.export_csv_folder if ft else None, proc_csv_folder)
+                    eff_password     = _eff('password', ft.password if ft else None, proc_password)
+                    eff_send_emblue  = _eff('send_emblue', ft.send_emblue if ft else None, proc_send_emblue)
+                    eff_emblue_id    = _eff('emblue_id_cuenta', ft.emblue_id_cuenta if ft else None, proc_emblue_id)
+                    eff_emblue_carpeta = _eff('emblue_carpeta', ft.emblue_carpeta if ft else None, proc_emblue_carpeta)
+                    eff_flg_dropeo     = (ft.emblue_flg_dropeo if ft else proc_flg_dropeo)
                     eff_flg_fecha_base = (ft.emblue_flg_fecha_base if ft else proc_flg_fecha_base)
 
                     # ── Excel ────────────────────────────────────────────────────
