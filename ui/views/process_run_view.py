@@ -89,11 +89,10 @@ class ProcessRunView(QWidget):
         self.form_container = QVBoxLayout()
         root.addLayout(self.form_container)
 
+        # Contenedores temporales para construir secciones; no los añadimos
+        # directamente al layout principal: los organizaremos en pestañas.
         self.email_container = QVBoxLayout()
-        root.addLayout(self.email_container)
-
         self.emblue_container = QVBoxLayout()
-        root.addLayout(self.emblue_container)
 
         action_row = QHBoxLayout()
         self.run_btn = QPushButton("▶ Ejecutar")
@@ -177,7 +176,6 @@ class ProcessRunView(QWidget):
         last_export_opts = last_state.get("export_options", {})
 
         self.param_form = ParameterFormWidget(process.parameters, initial_values=last_values)
-        self.form_container.addWidget(self.param_form)
 
         self.export_options = {}
         self.export_inputs = {}
@@ -236,6 +234,7 @@ class ProcessRunView(QWidget):
                 layout.addRow("", self.attach_csv_cb)
                 
             group_box.setLayout(layout)
+            # se mantiene en self.email_container para agregarse a la pestaña
             self.email_container.addWidget(group_box)
 
         # Emblue settings
@@ -263,6 +262,7 @@ class ProcessRunView(QWidget):
             emblue_layout.addRow("", self.emblue_inputs['flg_fecha_base'])
 
             emblue_gb.setLayout(emblue_layout)
+            # se mantiene en self.emblue_container para agregarse a la pestaña
             self.emblue_container.addWidget(emblue_gb)
 
         # Configuración Global de Contraseña (Si aplica)
@@ -279,6 +279,7 @@ class ProcessRunView(QWidget):
             pwd_layout.addRow("Contraseña:", self.password_input)
             self.password_fields_list.append(self.password_input)
             pwd_gb.setLayout(pwd_layout)
+            # se mantiene en self.emblue_container para agregarse a la pestaña
             self.emblue_container.addWidget(pwd_gb)
 
         # Toggle Preview Option
@@ -287,6 +288,7 @@ class ProcessRunView(QWidget):
             "Desmarcar para mostrar sólo nombres de tablas y cargar el preview sólo al hacer clic."
         )
         self.show_preview_cb.setChecked(last_export_opts.get('show_preview', getattr(process, 'show_preview', False)))
+        # Añadiremos el checkbox a la pestaña Global más abajo
         self.emblue_container.addWidget(self.show_preview_cb)
 
         # Configuración por Tabla (Overrides)
@@ -300,6 +302,10 @@ class ProcessRunView(QWidget):
             tables_layout.addWidget(show_pwd_cb)
 
             tables_tabs = QTabWidget()
+            show_overrides_cb = QCheckBox("Mostrar sólo campos modificados")
+            show_overrides_cb.setChecked(False)
+            show_overrides_cb.stateChanged.connect(self._toggle_table_overrides_view)
+            tables_layout.addWidget(show_overrides_cb)
             table_overrides = last_export_opts.get('table_overrides', {})
 
             for ft in process.final_tables:
@@ -309,11 +315,7 @@ class ProcessRunView(QWidget):
 
                 fields = {}
 
-                table_name_readonly = QLineEdit(ft.table)
-                table_name_readonly.setReadOnly(True)
-                tab_layout.addRow("Tabla destino:", table_name_readonly)
-                fields['table'] = table_name_readonly
-
+                # Mostrar solo la etiqueta legible para el usuario
                 table_label_readonly = QLineEdit(ft.label)
                 table_label_readonly.setReadOnly(True)
                 tab_layout.addRow("Etiqueta:", table_label_readonly)
@@ -337,6 +339,7 @@ class ProcessRunView(QWidget):
                 excel_layout.addWidget(browse_excel_btn)
                 tab_layout.addRow("Ruta Excel:", excel_layout)
                 fields['export_excel_folder'] = excel_input
+                fields['export_excel_browse'] = browse_excel_btn
 
                 # CSV Folder
                 csv_input = QLineEdit()
@@ -350,6 +353,7 @@ class ProcessRunView(QWidget):
                 csv_layout.addWidget(browse_csv_btn)
                 tab_layout.addRow("Ruta CSV:", csv_layout)
                 fields['export_csv_folder'] = csv_input
+                fields['export_csv_browse'] = browse_csv_btn
 
                 # Password
                 pwd_input = QLineEdit()
@@ -395,6 +399,19 @@ class ProcessRunView(QWidget):
                 tab_layout.addRow("", emblue_fecha_cb)
                 fields['emblue_flg_fecha_base'] = emblue_fecha_cb
 
+                # Guardar valores por defecto del FinalTable para comparación estética
+                fields['_ft_defaults'] = {
+                    'export_excel_folder': ft.export_excel_folder or '',
+                    'export_csv_folder': ft.export_csv_folder or '',
+                    'password': ft.password or '',
+                    'send_emblue': ft.send_emblue,
+                    'emblue_id_cuenta': ft.emblue_id_cuenta or '',
+                    'emblue_carpeta': ft.emblue_carpeta or '',
+                    'emblue_flg_dropeo': int(ft.emblue_flg_dropeo or 0),
+                    'emblue_flg_fecha_base': int(ft.emblue_flg_fecha_base or 0),
+                    'export_name': ft.export_name or ''
+                }
+
                 self.table_ui_fields[ft.table] = fields
                 tab_widget.setLayout(tab_layout)
                 tables_tabs.addTab(tab_widget, ft.label)
@@ -403,10 +420,110 @@ class ProcessRunView(QWidget):
             tables_gb.setLayout(tables_layout)
             self.emblue_container.addWidget(tables_gb)
 
+        # --- Ensamblar pestañas de configuración (Parámetros / Global / Por tabla) ---
+        settings_tabs = QTabWidget()
+
+        # Pestaña Parámetros
+        tab_params = QWidget()
+        tp_layout = QVBoxLayout(tab_params)
+        tp_layout.setContentsMargins(0, 0, 0, 0)
+        tp_layout.addWidget(self.param_form)
+        settings_tabs.addTab(tab_params, "Parámetros")
+
+        # Pestaña Global: movemos widgets creados en email_container y emblue_container
+        tab_global = QWidget()
+        tg_layout = QVBoxLayout(tab_global)
+        tg_layout.setContentsMargins(0, 0, 0, 0)
+
+        # mover widgets desde email_container
+        while self.email_container.count():
+            it = self.email_container.takeAt(0)
+            w = it.widget()
+            if w:
+                tg_layout.addWidget(w)
+
+        # mover widgets desde emblue_container
+        while self.emblue_container.count():
+            it = self.emblue_container.takeAt(0)
+            w = it.widget()
+            if w:
+                tg_layout.addWidget(w)
+
+        tg_layout.addStretch()
+        settings_tabs.addTab(tab_global, "Configuración")
+
+        # Pestaña Por Tabla
+        tab_tables = QWidget()
+        tt_layout = QVBoxLayout(tab_tables)
+        tt_layout.setContentsMargins(0, 0, 0, 0)
+        # si existía tables_gb lo añadimos
+        try:
+            tt_layout.addWidget(tables_gb)
+        except NameError:
+            pass
+        tt_layout.addStretch()
+        settings_tabs.addTab(tab_tables, "Por tabla")
+
+        # Reemplazamos el área de formulario por las pestañas
+        self.form_container.addWidget(settings_tabs)
+
     def _toggle_passwords(self, state):
         echo_mode = QLineEdit.Normal if state else QLineEdit.Password
         for field in self.password_fields_list:
             field.setEchoMode(echo_mode)
+
+    def _toggle_table_overrides_view(self, state: int):
+        """Muestra u oculta widgets en la pestaña 'Por tabla' según si son
+        distintos a los valores por defecto del FinalTable (estética solamente)."""
+        show_only = (state == Qt.Checked)
+
+        for table_name, fields in self.table_ui_fields.items():
+            defaults = fields.get('_ft_defaults', {})
+            for key, widget in list(fields.items()):
+                if key == '_ft_defaults':
+                    continue
+
+                # Detectar tipo y valor actual
+                try:
+                    if isinstance(widget, QLineEdit):
+                        cur = widget.text().strip()
+                        default = str(defaults.get(key, '') or '')
+                        diff = (cur != '' and cur != default)
+                    elif isinstance(widget, QComboBox):
+                        cur = widget.currentText()
+                        default = defaults.get(key, None)
+                        if cur == 'Heredar':
+                            diff = False
+                        else:
+                            # 'Sí'/'No' map to bool
+                            if default in (True, False):
+                                diff = (cur == 'Sí') != bool(default)
+                            else:
+                                diff = cur != (str(default) if default is not None else '')
+                    elif isinstance(widget, QCheckBox):
+                        cur = widget.isChecked()
+                        default = bool(defaults.get(key, 0))
+                        diff = (cur != default)
+                    else:
+                        diff = True
+                except Exception:
+                    diff = True
+
+                visible = (not show_only) or diff
+
+                # Ocultar/mostrar widget
+                try:
+                    widget.setVisible(visible)
+                except Exception:
+                    pass
+
+                # Si hay un botón de browse correspondiente, ocultarlo también
+                browse_key = f"{key}_browse"
+                if browse_key in fields:
+                    try:
+                        fields[browse_key].setVisible(visible)
+                    except Exception:
+                        pass
 
     def _browse_folder_for_input(self, input_widget: QLineEdit):
         current_path = input_widget.text()
