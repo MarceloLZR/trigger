@@ -15,7 +15,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QProgressBar,
     QSplitter, QFileDialog, QMessageBox, QLineEdit, QFormLayout, QGroupBox,
-    QTabWidget, QScrollArea, QFrame, QCheckBox, QComboBox
+    QTabWidget, QScrollArea, QFrame, QCheckBox, QComboBox, QSizePolicy
 )
 from PySide6.QtCore import Qt
 
@@ -125,11 +125,9 @@ class ProcessRunView(QWidget):
         self.progress_bar.setValue(0)
         root.addWidget(self.progress_bar)
 
-        # --- Preview: QTabWidget para soportar múltiples tablas ---
         self.preview_tabs = QTabWidget()
         self.preview_tabs.setObjectName("PreviewTabs")
-        self.preview_tabs.setMinimumHeight(350)
-        root.addWidget(self.preview_tabs, 1)
+        self.preview_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.console = ConsoleWidget()
         self.console.setMinimumHeight(150)
@@ -176,6 +174,7 @@ class ProcessRunView(QWidget):
         last_export_opts = last_state.get("export_options", {})
 
         self.param_form = ParameterFormWidget(process.parameters, initial_values=last_values)
+        self.param_form.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
 
         self.export_options = {}
         self.export_inputs = {}
@@ -288,8 +287,7 @@ class ProcessRunView(QWidget):
             "Desmarcar para mostrar sólo nombres de tablas y cargar el preview sólo al hacer clic."
         )
         self.show_preview_cb.setChecked(last_export_opts.get('show_preview', getattr(process, 'show_preview', False)))
-        # Añadiremos el checkbox a la pestaña Global más abajo
-        self.emblue_container.addWidget(self.show_preview_cb)
+        # se añadirá a la pestaña Parámetros más abajo
 
         # Configuración por Tabla (Overrides)
         self.table_ui_fields = {}
@@ -428,6 +426,8 @@ class ProcessRunView(QWidget):
         tp_layout = QVBoxLayout(tab_params)
         tp_layout.setContentsMargins(0, 0, 0, 0)
         tp_layout.addWidget(self.param_form)
+        tp_layout.addWidget(self.show_preview_cb)
+        tp_layout.addWidget(self.preview_tabs)
         settings_tabs.addTab(tab_params, "Parámetros")
 
         # Pestaña Global: movemos widgets creados en email_container y emblue_container
