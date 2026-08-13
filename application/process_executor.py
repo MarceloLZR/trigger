@@ -159,6 +159,7 @@ class ProcessWorker(QThread):
 
             if has_data:
                 import tempfile
+                from infrastructure.account_service import AccountService
                 from infrastructure.emblue_service import EmblueService
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -171,20 +172,44 @@ class ProcessWorker(QThread):
                 attach_excel      = self.export_options.get('attach_excel', True)
                 attach_csv        = self.export_options.get('attach_csv', True)
                 proc_password     = self.export_options.get('export_password') or ''
+
+                # Backwards-compatible Emblue values
                 proc_send_emblue  = getattr(self.process, 'send_emblue', False)
                 proc_emblue_id    = self.export_options.get('emblue_id_cuenta')
                 proc_emblue_carpeta = self.export_options.get('emblue_carpeta')
                 proc_flg_dropeo   = self.export_options.get('emblue_flg_dropeo', 0)
                 proc_flg_fecha_base = self.export_options.get('emblue_flg_fecha_base', 0)
 
-                # Cache de credenciales Emblue por ID de cuenta (evitar consultas repetidas)
-                _emblue_creds_cache: dict = {}
+                # Generic account-level defaults (preferred)
+                proc_account_type = self.export_options.get('account_type') or getattr(self.process, 'account_type', None)
+                if proc_account_type is None and proc_send_emblue:
+                    proc_account_type = 'emblue'
+                proc_account_id = self.export_options.get('account_id') or getattr(self.process, 'account_id', None) or proc_emblue_id
+                proc_account_folder = self.export_options.get('account_folder') or getattr(self.process, 'account_folder', None) or proc_emblue_carpeta
+
+                # Services and caches
+                _account_creds_cache: dict = {}
+                _account_service = AccountService(self.connection_provider)
                 _emblue_service = EmblueService(self.connection_provider)
 
-                def _get_emblue_creds(id_cuenta):
-                    if id_cuenta not in _emblue_creds_cache:
-                        _emblue_creds_cache[id_cuenta] = _emblue_service.obtener_credenciales(int(id_cuenta))
-                    return _emblue_creds_cache[id_cuenta]
+                def _get_account_creds(tipo, id_cuenta):
+                    key = f"{tipo}:{id_cuenta}"
+                    if key not in _account_creds_cache:
+                        _account_creds_cache[key] = _account_service.obtener_credenciales(tipo, int(id_cuenta))
+                    return _account_creds_cache[key]
+
+                # Helper to pick common keys from credential dict (case-insensitive)
+                def _pick(d: dict, candidates: list[str]):
+                    if not d:
+                        return None
+                    for c in candidates:
+                        if c in d and d[c] is not None:
+                            return d[c]
+                        lower = c.lower()
+                        for k in d:
+                            if k.lower() == lower and d[k] is not None:
+                                return d[k]
+                    return None
 
                 # ── Por-tabla loop ──────────────────────────────────────────────────
                 for result in results:
@@ -226,11 +251,13 @@ class ProcessWorker(QThread):
                     eff_excel_folder = _eff('export_excel_folder', ft.export_excel_folder if ft else None, proc_excel_folder)
                     eff_csv_folder   = _eff('export_csv_folder', ft.export_csv_folder if ft else None, proc_csv_folder)
                     eff_password     = _eff('password', ft.password if ft else None, proc_password)
-                    eff_send_emblue  = _eff('send_emblue', ft.send_emblue if ft else None, proc_send_emblue)
-                    eff_emblue_id    = _eff('emblue_id_cuenta', ft.emblue_id_cuenta if ft else None, proc_emblue_id)
-                    eff_emblue_carpeta = _eff('emblue_carpeta', ft.emblue_carpeta if ft else None, proc_emblue_carpeta)
-                    eff_flg_dropeo     = (ft.emblue_flg_dropeo if ft else proc_flg_dropeo)
-                    eff_flg_fecha_base = (ft.emblue_flg_fecha_base if ft else proc_flg_fecha_base)
+
+                    # Account resolution (per-table overrides possible)
+                    eff_account_type = _eff('account_type', getattr(ft, 'account_type', None) if ft else None, proc_account_type)
+                    eff_account_id = _eff('account_id', getattr(ft, 'account_id', None) if ft else None, proc_account_id)
+                    eff_account_folder = _eff('account_folder', getattr(ft, 'account_folder', None) if ft else None, proc_account_folder)
+                    eff_flg_dropeo     = (getattr(ft, 'emblue_flg_dropeo', None) if ft else None) or proc_flg_dropeo
+                    eff_flg_fecha_base = (getattr(ft, 'emblue_flg_fecha_base', None) if ft else None) or proc_flg_fecha_base
 
                     # ── Excel ────────────────────────────────────────────────────
                     if eff_excel_folder and self.excel_exporter:
@@ -262,22 +289,27 @@ class ProcessWorker(QThread):
                         except Exception as exc:
                             self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {exc}")
 
-                    # ── Emblue ────────────────────────────────────────────────────
-                    if eff_send_emblue and eff_emblue_id:
+                    # ── Cuenta genérica (SFTP/Emblue u otra) ───────────────────────
+                    if eff_account_type and eff_account_id:
                         try:
-                            emblue_host, emblue_user, emblue_pwd = _get_emblue_creds(eff_emblue_id)
-                            if not all([emblue_host, emblue_user, emblue_pwd]):
-                                self.log.emit(f"⚠️ No se encontraron credenciales Emblue (ID {eff_emblue_id}) para '{result['label']}'. Saltando.")
+                            creds = _get_account_creds(eff_account_type, eff_account_id)
+                            host = _pick(creds, ['HOST', 'host', 'SERVIDOR', 'server'])
+                            user = _pick(creds, ['USUARIO', 'usuario', 'USER', 'username'])
+                            pwd = _pick(creds, ['CONTRASEÑA', 'CONTRASENA', 'contrasena', 'PASSWORD', 'password'])
+                            carpeta = eff_account_folder or _pick(creds, ['CARPETA', 'carpeta', 'FOLDER', 'folder'])
+
+                            if not all([host, user, pwd]):
+                                self.log.emit(f"⚠️ No se encontraron credenciales para cuenta {eff_account_type} (ID {eff_account_id}) para '{result['label']}'. Saltando.")
                             else:
-                                carpeta_remota = _emblue_service.armar_carpeta_emblue(eff_emblue_carpeta)
+                                carpeta_remota = _emblue_service.armar_carpeta_emblue(carpeta)
                                 fd, temp_csv = tempfile.mkstemp(suffix=".csv")
                                 os.close(fd)
                                 try:
                                     df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
                                     archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
                                     _emblue_service.subir_sftp(
-                                        servidor=emblue_host, usuario=emblue_user,
-                                        contrasena=emblue_pwd,
+                                        servidor=host, usuario=user,
+                                        contrasena=pwd,
                                         archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
                                         logger=self.log.emit
                                     )
@@ -287,8 +319,8 @@ class ProcessWorker(QThread):
                                             fx.write('<?xml version="1.0" encoding="utf-8"?>\n<root></root>')
                                         try:
                                             _emblue_service.subir_sftp(
-                                                servidor=emblue_host, usuario=emblue_user,
-                                                contrasena=emblue_pwd,
+                                                servidor=host, usuario=user,
+                                                contrasena=pwd,
                                                 archivo_local=temp_xml,
                                                 archivo_remoto=carpeta_remota + safe_filename + ".xml",
                                                 logger=self.log.emit
@@ -296,22 +328,24 @@ class ProcessWorker(QThread):
                                         finally:
                                             if os.path.exists(temp_xml):
                                                 os.remove(temp_xml)
-                                    # Registrar en BD
-                                    tabla_bd = ft.table if ft else self.process.final_tables[0].table
-                                    _emblue_service.registrar_y_marcar_enviado(
-                                        nombre_campana=rendered_process_name,
-                                        tabla=tabla_bd,
-                                        flg_dropeo=eff_flg_dropeo,
-                                        flg_fecha_base=eff_flg_fecha_base,
-                                        id_cuenta_emblue=eff_emblue_id,
-                                        carpeta_emblue=eff_emblue_carpeta,
-                                        logger=self.log.emit
-                                    )
+
+                                    # Registrar en BD sólo si es Emblue (SP específico)
+                                    if eff_account_type.lower() == 'emblue':
+                                        tabla_bd = ft.table if ft else self.process.final_tables[0].table
+                                        _emblue_service.registrar_y_marcar_enviado(
+                                            nombre_campana=rendered_process_name,
+                                            tabla=tabla_bd,
+                                            flg_dropeo=eff_flg_dropeo,
+                                            flg_fecha_base=eff_flg_fecha_base,
+                                            id_cuenta_emblue=eff_account_id,
+                                            carpeta_emblue=carpeta,
+                                            logger=self.log.emit
+                                        )
                                 finally:
                                     if os.path.exists(temp_csv):
                                         os.remove(temp_csv)
                         except Exception as exc:
-                            self.log.emit(f"❌ Error Emblue ({result['label']}): {exc}")
+                            self.log.emit(f"❌ Error envío cuenta {eff_account_type} ({result['label']}): {exc}")
 
             # Email
             to_addresses = self.export_options.get('email_to')

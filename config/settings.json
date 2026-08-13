@@ -6,4 +6,9 @@
   "username": "",
   "password": "",
   "timeout": 30
+  ,
+  "account_tables": {
+    "emblue": "DM.CUENTAS_EMBLUE",
+    "sftp": "DM.CUENTAS_SFTP"
+  }
 }

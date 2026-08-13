@@ -236,33 +236,48 @@ class ProcessRunView(QWidget):
             # se mantiene en self.email_container para agregarse a la pestaña
             self.email_container.addWidget(group_box)
 
-        # Emblue settings
-        self.emblue_inputs = {}
-        if getattr(process, 'send_emblue', False):
-            emblue_gb = QGroupBox("Configuración de Envío a Emblue SFTP")
-            emblue_layout = QFormLayout()
-            
-            self.emblue_inputs['id_cuenta'] = QLineEdit()
-            self.emblue_inputs['id_cuenta'].setText(str(last_export_opts.get('emblue_id_cuenta', process.emblue_id_cuenta or '')))
-            emblue_layout.addRow("ID Cuenta:", self.emblue_inputs['id_cuenta'])
-            
-            self.emblue_inputs['carpeta'] = QLineEdit()
-            self.emblue_inputs['carpeta'].setText(str(last_export_opts.get('emblue_carpeta', process.emblue_carpeta or '')))
-            emblue_layout.addRow("Carpeta Emblue:", self.emblue_inputs['carpeta'])
-            
-            self.emblue_inputs['flg_dropeo'] = QCheckBox("Dropear tabla luego del envío")
-            flg_dropeo = bool(last_export_opts.get('emblue_flg_dropeo', process.emblue_flg_dropeo))
-            self.emblue_inputs['flg_dropeo'].setChecked(flg_dropeo)
-            emblue_layout.addRow("", self.emblue_inputs['flg_dropeo'])
+        # Account settings (generic: Emblue / SFTP / other)
+        self.account_inputs = {}
+        if getattr(process, 'send_emblue', False) or getattr(process, 'account_type', None):
+            account_gb = QGroupBox("Configuración de Cuenta (SFTP / Emblue / Otro)")
+            account_layout = QFormLayout()
 
-            self.emblue_inputs['flg_fecha_base'] = QCheckBox("Enviar con fecha base (Generar XML)")
-            flg_fecha_base = bool(last_export_opts.get('emblue_flg_fecha_base', process.emblue_flg_fecha_base))
-            self.emblue_inputs['flg_fecha_base'].setChecked(flg_fecha_base)
-            emblue_layout.addRow("", self.emblue_inputs['flg_fecha_base'])
+            # Tipo de cuenta
+            self.account_inputs['type'] = QComboBox()
+            self.account_inputs['type'].addItems(["Heredar", "emblue", "sftp", "otro"])
+            saved_type = last_export_opts.get('account_type', getattr(process, 'account_type', None))
+            if not saved_type and getattr(process, 'send_emblue', False):
+                saved_type = 'emblue'
+            if saved_type:
+                self.account_inputs['type'].setCurrentText(str(saved_type))
+            else:
+                self.account_inputs['type'].setCurrentText('Heredar')
+            account_layout.addRow("Tipo de cuenta:", self.account_inputs['type'])
 
-            emblue_gb.setLayout(emblue_layout)
+            # ID de cuenta
+            self.account_inputs['id'] = QLineEdit()
+            self.account_inputs['id'].setText(str(last_export_opts.get('account_id', last_export_opts.get('emblue_id_cuenta', getattr(process, 'account_id', process.emblue_id_cuenta or '')) or '')))
+            account_layout.addRow("ID Cuenta:", self.account_inputs['id'])
+
+            # Carpeta/remota
+            self.account_inputs['folder'] = QLineEdit()
+            self.account_inputs['folder'].setText(str(last_export_opts.get('account_folder', last_export_opts.get('emblue_carpeta', getattr(process, 'account_folder', process.emblue_carpeta or '')) or '')))
+            account_layout.addRow("Carpeta remota:", self.account_inputs['folder'])
+
+            # Flags legacy (dropear, fecha base)
+            self.account_inputs['flg_dropeo'] = QCheckBox("Dropear tabla luego del envío")
+            flg_dropeo = bool(last_export_opts.get('emblue_flg_dropeo', getattr(process, 'emblue_flg_dropeo', 0)))
+            self.account_inputs['flg_dropeo'].setChecked(flg_dropeo)
+            account_layout.addRow("", self.account_inputs['flg_dropeo'])
+
+            self.account_inputs['flg_fecha_base'] = QCheckBox("Enviar con fecha base (Generar XML)")
+            flg_fecha_base = bool(last_export_opts.get('emblue_flg_fecha_base', getattr(process, 'emblue_flg_fecha_base', 0)))
+            self.account_inputs['flg_fecha_base'].setChecked(flg_fecha_base)
+            account_layout.addRow("", self.account_inputs['flg_fecha_base'])
+
+            account_gb.setLayout(account_layout)
             # se mantiene en self.emblue_container para agregarse a la pestaña
-            self.emblue_container.addWidget(emblue_gb)
+            self.emblue_container.addWidget(account_gb)
 
         # Configuración Global de Contraseña (Si aplica)
         self.password_input = None
@@ -362,29 +377,29 @@ class ProcessRunView(QWidget):
                 fields['password'] = pwd_input
                 self.password_fields_list.append(pwd_input)
 
-                # Emblue
-                send_emblue_cb = QComboBox()
-                send_emblue_cb.addItems(["Heredar", "Sí", "No"])
+                # Envío a cuenta (genérico). Etiquetas genéricas para evitar confusión.
+                send_account_cb = QComboBox()
+                send_account_cb.addItems(["Heredar", "Sí", "No"])
                 saved_send = ft_overrides.get('send_emblue', ft.send_emblue)
                 if saved_send is None:
-                    send_emblue_cb.setCurrentText("Heredar")
+                    send_account_cb.setCurrentText("Heredar")
                 elif saved_send:
-                    send_emblue_cb.setCurrentText("Sí")
+                    send_account_cb.setCurrentText("Sí")
                 else:
-                    send_emblue_cb.setCurrentText("No")
-                tab_layout.addRow("Enviar a Emblue:", send_emblue_cb)
-                fields['send_emblue'] = send_emblue_cb
+                    send_account_cb.setCurrentText("No")
+                tab_layout.addRow("Enviar a cuenta (SFTP/Proveedor/...):", send_account_cb)
+                fields['send_emblue'] = send_account_cb
 
                 emblue_id = QLineEdit()
                 emblue_id.setPlaceholderText("Heredar del proceso")
                 emblue_id.setText(str(ft_overrides.get('emblue_id_cuenta', ft.emblue_id_cuenta or '')))
-                tab_layout.addRow("ID Cuenta Emblue:", emblue_id)
+                tab_layout.addRow("ID Cuenta:", emblue_id)
                 fields['emblue_id_cuenta'] = emblue_id
 
                 emblue_carpeta = QLineEdit()
                 emblue_carpeta.setPlaceholderText("Heredar del proceso")
                 emblue_carpeta.setText(ft_overrides.get('emblue_carpeta', ft.emblue_carpeta or ''))
-                tab_layout.addRow("Carpeta Emblue:", emblue_carpeta)
+                tab_layout.addRow("Carpeta remota:", emblue_carpeta)
                 fields['emblue_carpeta'] = emblue_carpeta
 
                 emblue_dropeo_cb = QCheckBox("Dropear tabla luego del envío")
@@ -409,6 +424,31 @@ class ProcessRunView(QWidget):
                     'emblue_flg_fecha_base': int(ft.emblue_flg_fecha_base or 0),
                     'export_name': ft.export_name or ''
                 }
+
+                # Mostrar la cuenta efectiva usada para esta tabla (sólo visual)
+                try:
+                    eff_type = ft_overrides.get('account_type') or getattr(process, 'account_type', None)
+                    if not eff_type:
+                        # legacy: si se configuró send_emblue, asumimos emblue
+                        eff_type = 'emblue' if (ft.send_emblue or getattr(process, 'send_emblue', False)) else None
+
+                    eff_id = ft_overrides.get('account_id') or getattr(ft, 'account_id', None) or getattr(process, 'account_id', None) or getattr(process, 'emblue_id_cuenta', None)
+                    eff_folder = ft_overrides.get('account_folder') or getattr(ft, 'account_folder', None) or getattr(process, 'account_folder', None) or getattr(process, 'emblue_carpeta', None)
+
+                    account_read = QLineEdit()
+                    account_read.setReadOnly(True)
+                    display_val = ''
+                    if eff_type:
+                        display_val = str(eff_type)
+                    if eff_id:
+                        display_val += f" / {eff_id}"
+                    if eff_folder:
+                        display_val += f" / {eff_folder}"
+                    account_read.setText(display_val)
+                    tab_layout.addRow("Cuenta usada:", account_read)
+                    fields['_effective_account'] = account_read
+                except Exception:
+                    pass
 
                 self.table_ui_fields[ft.table] = fields
                 tab_widget.setLayout(tab_layout)
@@ -568,10 +608,17 @@ class ProcessRunView(QWidget):
             "attach_excel": self.attach_excel_cb.isChecked() if getattr(self, 'attach_excel_cb', None) else False,
             "attach_csv": self.attach_csv_cb.isChecked() if getattr(self, 'attach_csv_cb', None) else False,
             
-            "emblue_id_cuenta": self.emblue_inputs['id_cuenta'].text() if 'id_cuenta' in self.emblue_inputs else None,
-            "emblue_carpeta": self.emblue_inputs['carpeta'].text() if 'carpeta' in self.emblue_inputs else None,
-            "emblue_flg_dropeo": 1 if ('flg_dropeo' in self.emblue_inputs and self.emblue_inputs['flg_dropeo'].isChecked()) else 0,
-            "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.emblue_inputs and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0,
+            "account_type": (self.account_inputs['type'].currentText() if 'type' in self.account_inputs else None),
+            "account_id": (self.account_inputs['id'].text() if 'id' in self.account_inputs else None),
+            "account_folder": (self.account_inputs['folder'].text() if 'folder' in self.account_inputs else None),
+            "account_flg_dropeo": 1 if ('flg_dropeo' in self.account_inputs and self.account_inputs['flg_dropeo'].isChecked()) else 0,
+            "account_flg_fecha_base": 1 if ('flg_fecha_base' in self.account_inputs and self.account_inputs['flg_fecha_base'].isChecked()) else 0,
+
+            # Compatibilidad legacy Emblue
+            "emblue_id_cuenta": self.account_inputs['id'].text() if 'id' in self.account_inputs else (self.emblue_inputs['id_cuenta'].text() if 'id_cuenta' in getattr(self, 'emblue_inputs', {}) else None),
+            "emblue_carpeta": self.account_inputs['folder'].text() if 'folder' in self.account_inputs else (self.emblue_inputs['carpeta'].text() if 'carpeta' in getattr(self, 'emblue_inputs', {}) else None),
+            "emblue_flg_dropeo": 1 if ('flg_dropeo' in self.account_inputs and self.account_inputs['flg_dropeo'].isChecked()) else (1 if ('flg_dropeo' in getattr(self, 'emblue_inputs', {}) and self.emblue_inputs['flg_dropeo'].isChecked()) else 0),
+            "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.account_inputs and self.account_inputs['flg_fecha_base'].isChecked()) else (1 if ('flg_fecha_base' in getattr(self, 'emblue_inputs', {}) and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0),
             
             "export_password": self.password_input.text() if self.password_input else None,
             "show_preview": self.show_preview_cb.isChecked(),
