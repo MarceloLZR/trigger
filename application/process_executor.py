@@ -176,6 +176,7 @@ class ProcessWorker(QThread):
             # --- POST PROCESSING: EXPORTS & EMAIL ---
             has_data = any(not r["df"].empty for r in results)
             exported_files = []
+            tabla_info = {}  # Información de cada tabla exportada: {label: {rutas: [], filas: 0, ...}}
 
             if has_data:
                 import tempfile
@@ -293,6 +294,15 @@ class ProcessWorker(QThread):
                                 self.log.emit(f"✅ Excel guardado: {export_path}")
                             if attach_excel:
                                 exported_files.append(export_path)
+                            
+                            # Guardar información de la tabla
+                            if result["label"] not in tabla_info:
+                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                            tabla_info[result["label"]]["rutas"].append({
+                                "ruta": export_path,
+                                "nombre_archivo": os.path.basename(export_path),
+                                "formato": "Excel"
+                            })
                         except Exception as exc:
                             self.log.emit(f"❌ Error al guardar Excel ({result['label']}): {exc}")
 
@@ -308,6 +318,15 @@ class ProcessWorker(QThread):
                                 self.log.emit(f"✅ CSV guardado: {export_path}")
                             if attach_csv:
                                 exported_files.append(export_path)
+                            
+                            # Guardar información de la tabla
+                            if result["label"] not in tabla_info:
+                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                            tabla_info[result["label"]]["rutas"].append({
+                                "ruta": export_path,
+                                "nombre_archivo": os.path.basename(export_path),
+                                "formato": "CSV"
+                            })
                         except Exception as exc:
                             self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {exc}")
 
@@ -345,6 +364,17 @@ class ProcessWorker(QThread):
                                             logger=self.log.emit
                                         )
                                         self.log.emit(f"✅ Excel subido a SFTP: {archivo_remoto}")
+                                        
+                                        # Guardar información SFTP de la tabla
+                                        if result["label"] not in tabla_info:
+                                            tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                                        tabla_info[result["label"]]["rutas"].append({
+                                            "ruta": archivo_remoto,
+                                            "nombre_archivo": os.path.basename(archivo_remoto),
+                                            "formato": "Excel (SFTP)",
+                                            "servidor": host,
+                                            "cuenta": eff_account_type
+                                        })
                                     finally:
                                         if os.path.exists(temp_xlsx):
                                             os.remove(temp_xlsx)
@@ -361,6 +391,17 @@ class ProcessWorker(QThread):
                                             archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
                                             logger=self.log.emit
                                         )
+                                        
+                                        # Guardar información SFTP de la tabla
+                                        if result["label"] not in tabla_info:
+                                            tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                                        tabla_info[result["label"]]["rutas"].append({
+                                            "ruta": archivo_csv_remoto,
+                                            "nombre_archivo": os.path.basename(archivo_csv_remoto),
+                                            "formato": "CSV (SFTP)",
+                                            "servidor": host,
+                                            "cuenta": eff_account_type
+                                        })
                                     finally:
                                         if os.path.exists(temp_csv):
                                             os.remove(temp_csv)
@@ -417,8 +458,32 @@ class ProcessWorker(QThread):
                             html_body = html_body.replace("{proceso_nombre}", self.process.name)
                             html_body = html_body.replace("{fecha}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                             html_body = html_body.replace("{filas}", str(total_rows))
+                            
+                            # Reemplazar parámetros del proceso
                             for param_name, param_value in record.parameters_used.items():
                                 html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
+                            
+                            # Reemplazar información de tablas
+                            # {tabla_LABEL_ruta}, {tabla_LABEL_filas}, {tabla_LABEL_nombre_archivo}, etc.
+                            for tabla_label, info in tabla_info.items():
+                                # Sanitizar el label para usarlo en la variable
+                                safe_label = tabla_label.replace(" ", "_").replace("-", "_")
+                                html_body = html_body.replace(f"{{tabla_{safe_label}_filas}}", str(info["filas"]))
+                                
+                                # Si hay múltiples rutas, usar la primera o crear una lista
+                                if info["rutas"]:
+                                    primera_ruta = info["rutas"][0]
+                                    html_body = html_body.replace(f"{{tabla_{safe_label}_ruta}}", primera_ruta.get("ruta", ""))
+                                    html_body = html_body.replace(f"{{tabla_{safe_label}_nombre_archivo}}", primera_ruta.get("nombre_archivo", ""))
+                                    html_body = html_body.replace(f"{{tabla_{safe_label}_formato}}", primera_ruta.get("formato", ""))
+                                    html_body = html_body.replace(f"{{tabla_{safe_label}_servidor}}", primera_ruta.get("servidor", ""))
+                                    html_body = html_body.replace(f"{{tabla_{safe_label}_cuenta}}", primera_ruta.get("cuenta", ""))
+                                    
+                                    # Para múltiples rutas, crear variables numeradas
+                                    for idx, ruta_info in enumerate(info["rutas"], 1):
+                                        html_body = html_body.replace(f"{{tabla_{safe_label}_ruta_{idx}}}", ruta_info.get("ruta", ""))
+                                        html_body = html_body.replace(f"{{tabla_{safe_label}_nombre_archivo_{idx}}}", ruta_info.get("nombre_archivo", ""))
+                                        html_body = html_body.replace(f"{{tabla_{safe_label}_formato_{idx}}}", ruta_info.get("formato", ""))
                         except Exception as exc:
                             self.log.emit(f"❌ Error leyendo plantilla de correo: {str(exc)}")
 
