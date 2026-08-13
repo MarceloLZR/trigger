@@ -238,7 +238,14 @@ class ProcessRunView(QWidget):
 
         # Account settings (generic: Emblue / SFTP / other)
         self.account_inputs = {}
-        if getattr(process, 'send_emblue', False) or getattr(process, 'account_type', None):
+        # Mostrar sección de cuenta si hay configuración legacy (send_emblue),
+        # si existe `account_type` o si el proceso declara `account_table`/`account_id`.
+        if (
+            getattr(process, 'send_emblue', False)
+            or getattr(process, 'account_type', None)
+            or getattr(process, 'account_table', None)
+            or getattr(process, 'account_id', None)
+        ):
             account_gb = QGroupBox("Configuración de Cuenta (SFTP / Emblue / Otro)")
             account_layout = QFormLayout()
 
@@ -431,14 +438,17 @@ class ProcessRunView(QWidget):
                     if not eff_type:
                         # legacy: si se configuró send_emblue, asumimos emblue
                         eff_type = 'emblue' if (ft.send_emblue or getattr(process, 'send_emblue', False)) else None
-
+                    eff_table = ft_overrides.get('account_table') or getattr(ft, 'account_table', None) or getattr(process, 'account_table', None)
                     eff_id = ft_overrides.get('account_id') or getattr(ft, 'account_id', None) or getattr(process, 'account_id', None) or getattr(process, 'emblue_id_cuenta', None)
                     eff_folder = ft_overrides.get('account_folder') or getattr(ft, 'account_folder', None) or getattr(process, 'account_folder', None) or getattr(process, 'emblue_carpeta', None)
 
                     account_read = QLineEdit()
                     account_read.setReadOnly(True)
                     display_val = ''
-                    if eff_type:
+                    # Prefer mostrar la tabla de credenciales si existe, para trazabilidad
+                    if eff_table:
+                        display_val = str(eff_table)
+                    elif eff_type:
                         display_val = str(eff_type)
                     if eff_id:
                         display_val += f" / {eff_id}"
