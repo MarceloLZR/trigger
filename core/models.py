@@ -48,6 +48,8 @@ class FinalTable:
 
     # Per-table Emblue overrides
     send_emblue: Optional[bool] = None
+    # Per-table generic send flag (True/False/None -> None hereda del proceso)
+    send_sftp: Optional[bool] = None
     emblue_id_cuenta: Optional[int] = None
     emblue_carpeta: Optional[str] = None
     emblue_flg_dropeo: int = 0
@@ -63,6 +65,9 @@ class FinalTable:
         send_emblue = data.get("send_emblue")
         if send_emblue is not None:
             send_emblue = bool(send_emblue)
+        send_sftp = data.get('send_sftp')
+        if send_sftp is not None:
+            send_sftp = bool(send_sftp)
         return FinalTable(
             table=data["table"],
             label=data.get("label", data["table"]),
@@ -71,6 +76,7 @@ class FinalTable:
             export_excel_folder=data.get("export_excel_folder"),
             export_csv_folder=data.get("export_csv_folder"),
             send_emblue=send_emblue,
+            send_sftp=send_sftp,
             emblue_id_cuenta=data.get("emblue_id_cuenta"),
             emblue_carpeta=data.get("emblue_carpeta"),
             emblue_flg_dropeo=data.get("emblue_flg_dropeo", 0),
@@ -137,6 +143,8 @@ class ProcessDefinition:
     
     # Emblue Settings
     send_emblue: bool = False
+    # Generic send flag
+    send_sftp: bool = False
     emblue_id_cuenta: Optional[int] = None
     emblue_carpeta: Optional[str] = None
     emblue_usuario: Optional[str] = None
@@ -195,6 +203,7 @@ class ProcessDefinition:
             email_subject=data.get("email_subject"),
             folder=folder,
             send_emblue=data.get("send_emblue", False),
+            send_sftp=data.get("send_sftp", data.get("send_emblue", False)),
             emblue_id_cuenta=data.get("emblue_id_cuenta"),
             emblue_carpeta=data.get("emblue_carpeta"),
             emblue_usuario=data.get("emblue_usuario"),

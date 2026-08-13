@@ -173,8 +173,8 @@ class ProcessWorker(QThread):
                 attach_csv        = self.export_options.get('attach_csv', True)
                 proc_password     = self.export_options.get('export_password') or ''
 
-                # Backwards-compatible Emblue values
-                proc_send_emblue  = getattr(self.process, 'send_emblue', False)
+                # Backwards-compatible flags (legacy and new)
+                proc_send_sftp = self.export_options.get('send_sftp', getattr(self.process, 'send_sftp', getattr(self.process, 'send_emblue', False)))
                 proc_emblue_id    = self.export_options.get('emblue_id_cuenta')
                 proc_emblue_carpeta = self.export_options.get('emblue_carpeta')
                 proc_flg_dropeo   = self.export_options.get('emblue_flg_dropeo', 0)
@@ -182,7 +182,9 @@ class ProcessWorker(QThread):
 
                 # Generic account-level defaults (preferred)
                 proc_account_type = self.export_options.get('account_type') or getattr(self.process, 'account_type', None)
-                if proc_account_type is None and proc_send_emblue:
+                if proc_account_type is None and proc_send_sftp:
+                    # legacy behavior: if send_sftp/send_emblue was enabled at process level,
+                    # assume the old 'emblue' provider unless account_type is specified.
                     proc_account_type = 'emblue'
                 proc_account_id = self.export_options.get('account_id') or getattr(self.process, 'account_id', None) or proc_emblue_id
                 proc_account_folder = self.export_options.get('account_folder') or getattr(self.process, 'account_folder', None) or proc_emblue_carpeta

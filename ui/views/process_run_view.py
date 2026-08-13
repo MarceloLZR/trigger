@@ -241,7 +241,7 @@ class ProcessRunView(QWidget):
         # Mostrar sección de cuenta si hay configuración legacy (send_emblue),
         # si existe `account_type` o si el proceso declara `account_table`/`account_id`.
         if (
-            getattr(process, 'send_emblue', False)
+            getattr(process, 'send_sftp', getattr(process, 'send_emblue', False))
             or getattr(process, 'account_type', None)
             or getattr(process, 'account_table', None)
             or getattr(process, 'account_id', None)
@@ -253,7 +253,8 @@ class ProcessRunView(QWidget):
             self.account_inputs['type'] = QComboBox()
             self.account_inputs['type'].addItems(["Heredar", "emblue", "sftp", "otro"])
             saved_type = last_export_opts.get('account_type', getattr(process, 'account_type', None))
-            if not saved_type and getattr(process, 'send_emblue', False):
+            if not saved_type and getattr(process, 'send_sftp', getattr(process, 'send_emblue', False)):
+                # Si el proceso marcaba envío, preferimos asumir 'emblue' por compatibilidad
                 saved_type = 'emblue'
             if saved_type:
                 self.account_inputs['type'].setCurrentText(str(saved_type))
@@ -387,7 +388,19 @@ class ProcessRunView(QWidget):
                 # Envío a cuenta (genérico). Etiquetas genéricas para evitar confusión.
                 send_account_cb = QComboBox()
                 send_account_cb.addItems(["Heredar", "Sí", "No"])
-                saved_send = ft_overrides.get('send_emblue', ft.send_emblue)
+                # Determinar si por defecto se envía a cuenta (nuevo flag `send_sftp`, fallback legacy)
+                saved_send = ft_overrides.get('send_sftp', None)
+                if saved_send is None:
+                    # Intentar derivarlo desde account_type (ft o proceso)
+                    derived_type = ft_overrides.get('account_type') or getattr(ft, 'account_type', None) or getattr(process, 'account_type', None)
+                    if derived_type is not None:
+                        # Si hay un tipo definido, asumimos que se envía a cuenta
+                        saved_send = True
+                    else:
+                        # Fallback a legacy send_emblue si existe
+                        saved_send = getattr(ft, 'send_sftp', None)
+                        if saved_send is None:
+                            saved_send = getattr(ft, 'send_emblue', None)
                 if saved_send is None:
                     send_account_cb.setCurrentText("Heredar")
                 elif saved_send:
@@ -395,17 +408,29 @@ class ProcessRunView(QWidget):
                 else:
                     send_account_cb.setCurrentText("No")
                 tab_layout.addRow("Enviar a cuenta (SFTP/Proveedor/...):", send_account_cb)
-                fields['send_emblue'] = send_account_cb
+                # Guardamos con nombre genérico 'send_sftp' (legacy compatibility kept al guardar)
+                fields['send_sftp'] = send_account_cb
 
                 emblue_id = QLineEdit()
                 emblue_id.setPlaceholderText("Heredar del proceso")
-                emblue_id.setText(str(ft_overrides.get('emblue_id_cuenta', ft.emblue_id_cuenta or '')))
+                # Preferir account_id/account_id override antes de legacy emblue_id
+                id_val = ft_overrides.get('account_id', None)
+                if id_val is None:
+                    id_val = ft_overrides.get('emblue_id_cuenta', ft.emblue_id_cuenta or None)
+                if id_val is None:
+                    id_val = getattr(process, 'account_id', getattr(process, 'emblue_id_cuenta', None))
+                emblue_id.setText(str(id_val or ''))
                 tab_layout.addRow("ID Cuenta:", emblue_id)
                 fields['emblue_id_cuenta'] = emblue_id
 
                 emblue_carpeta = QLineEdit()
                 emblue_carpeta.setPlaceholderText("Heredar del proceso")
-                emblue_carpeta.setText(ft_overrides.get('emblue_carpeta', ft.emblue_carpeta or ''))
+                folder_val = ft_overrides.get('account_folder', None)
+                if folder_val is None:
+                    folder_val = ft_overrides.get('emblue_carpeta', ft.emblue_carpeta or None)
+                if folder_val is None:
+                    folder_val = getattr(process, 'account_folder', getattr(process, 'emblue_carpeta', None))
+                emblue_carpeta.setText(folder_val or '')
                 tab_layout.addRow("Carpeta remota:", emblue_carpeta)
                 fields['emblue_carpeta'] = emblue_carpeta
 
@@ -425,6 +450,7 @@ class ProcessRunView(QWidget):
                     'export_csv_folder': ft.export_csv_folder or '',
                     'password': ft.password or '',
                     'send_emblue': ft.send_emblue,
+                    'send_sftp': getattr(ft, 'send_sftp', None),
                     'emblue_id_cuenta': ft.emblue_id_cuenta or '',
                     'emblue_carpeta': ft.emblue_carpeta or '',
                     'emblue_flg_dropeo': int(ft.emblue_flg_dropeo or 0),
@@ -436,8 +462,12 @@ class ProcessRunView(QWidget):
                 try:
                     eff_type = ft_overrides.get('account_type') or getattr(process, 'account_type', None)
                     if not eff_type:
-                        # legacy: si se configuró send_emblue, asumimos emblue
-                        eff_type = 'emblue' if (ft.send_emblue or getattr(process, 'send_emblue', False)) else None
+                        # Legacy mapping: if legacy emblue flag present prefer 'emblue',
+                        # else if new send_sftp flag present prefer 'sftp'.
+                        if getattr(ft, 'send_emblue', False) or getattr(process, 'send_emblue', False):
+                            eff_type = 'emblue'
+                        elif getattr(ft, 'send_sftp', False) or getattr(process, 'send_sftp', False):
+                            eff_type = 'sftp'
                     eff_table = ft_overrides.get('account_table') or getattr(ft, 'account_table', None) or getattr(process, 'account_table', None)
                     eff_id = ft_overrides.get('account_id') or getattr(ft, 'account_id', None) or getattr(process, 'account_id', None) or getattr(process, 'emblue_id_cuenta', None)
                     eff_folder = ft_overrides.get('account_folder') or getattr(ft, 'account_folder', None) or getattr(process, 'account_folder', None) or getattr(process, 'emblue_carpeta', None)
@@ -624,11 +654,13 @@ class ProcessRunView(QWidget):
             "account_flg_dropeo": 1 if ('flg_dropeo' in self.account_inputs and self.account_inputs['flg_dropeo'].isChecked()) else 0,
             "account_flg_fecha_base": 1 if ('flg_fecha_base' in self.account_inputs and self.account_inputs['flg_fecha_base'].isChecked()) else 0,
 
-            # Compatibilidad legacy Emblue
+            # Compatibilidad legacy Emblue (se mantienen para compatibilidad hacia atrás)
             "emblue_id_cuenta": self.account_inputs['id'].text() if 'id' in self.account_inputs else (self.emblue_inputs['id_cuenta'].text() if 'id_cuenta' in getattr(self, 'emblue_inputs', {}) else None),
             "emblue_carpeta": self.account_inputs['folder'].text() if 'folder' in self.account_inputs else (self.emblue_inputs['carpeta'].text() if 'carpeta' in getattr(self, 'emblue_inputs', {}) else None),
             "emblue_flg_dropeo": 1 if ('flg_dropeo' in self.account_inputs and self.account_inputs['flg_dropeo'].isChecked()) else (1 if ('flg_dropeo' in getattr(self, 'emblue_inputs', {}) and self.emblue_inputs['flg_dropeo'].isChecked()) else 0),
             "emblue_flg_fecha_base": 1 if ('flg_fecha_base' in self.account_inputs and self.account_inputs['flg_fecha_base'].isChecked()) else (1 if ('flg_fecha_base' in getattr(self, 'emblue_inputs', {}) and self.emblue_inputs['flg_fecha_base'].isChecked()) else 0),
+            # Nuevo flag genérico que indica enviar por SFTP/proveedor
+            "send_sftp": True if ('type' in self.account_inputs and self.account_inputs['type'].currentText() != 'Heredar' and ('id' in self.account_inputs and self.account_inputs['id'].text().strip() != '')) else False,
             
             "export_password": self.password_input.text() if self.password_input else None,
             "show_preview": self.show_preview_cb.isChecked(),
@@ -769,22 +801,45 @@ class ProcessRunView(QWidget):
                 if text:
                     table_data['password'] = text
 
-            if 'send_emblue' in fields:
-                send_value = fields['send_emblue'].currentText()
+            # Nuevo comportamiento: field key 'send_sftp' es el genérico.
+            if 'send_sftp' in fields:
+                send_value = fields['send_sftp'].currentText()
                 if send_value == 'Sí':
-                    table_data['send_emblue'] = True
+                    table_data['send_sftp'] = True
                 elif send_value == 'No':
-                    table_data['send_emblue'] = False
+                    table_data['send_sftp'] = False
+            else:
+                # compatibilidad: si aún existe el campo legacy
+                if 'send_emblue' in fields:
+                    send_value = fields['send_emblue'].currentText()
+                    if send_value == 'Sí':
+                        table_data['send_sftp'] = True
+                    elif send_value == 'No':
+                        table_data['send_sftp'] = False
 
+            # Mapear valores de los inputs legacy a los nuevos keys genéricos
             if 'emblue_id_cuenta' in fields:
                 text = fields['emblue_id_cuenta'].text().strip()
                 if text:
                     table_data['emblue_id_cuenta'] = text
+                    table_data['account_id'] = text
 
             if 'emblue_carpeta' in fields:
                 text = fields['emblue_carpeta'].text().strip()
                 if text:
                     table_data['emblue_carpeta'] = text
+                    table_data['account_folder'] = text
+
+            # También permitir campos con nombre genérico si se agregan en UI
+            if 'account_id' in fields:
+                text = fields['account_id'].text().strip()
+                if text:
+                    table_data['account_id'] = text
+
+            if 'account_folder' in fields:
+                text = fields['account_folder'].text().strip()
+                if text:
+                    table_data['account_folder'] = text
 
             if 'emblue_flg_dropeo' in fields:
                 table_data['emblue_flg_dropeo'] = 1 if fields['emblue_flg_dropeo'].isChecked() else 0
