@@ -11,6 +11,23 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
+
+def resolve_dynamic_value(value: Any) -> Any:
+    """Resuelve valores dinámicos como 'today', 'now', etc.
+    
+    Soporta:
+    - "today" → fecha de hoy en formato yyyyMMdd
+    - "today_iso" → fecha de hoy en formato yyyy-MM-dd
+    - "now" → timestamp actual (yyyyMMdd_HHmmss)
+    """
+    if value == "today":
+        return date.today().strftime("%Y%m%d")
+    if value == "today_iso":
+        return date.today().strftime("%Y-%m-%d")
+    if value == "now":
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return value
+
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QDateEdit, QComboBox, QCheckBox,
@@ -145,10 +162,13 @@ class ParameterFormWidget(QWidget):
         layout.addLayout(form)
 
     def get_values(self) -> dict[str, Any]:
-        return {
-            param.name: ParameterWidgetFactory.extract_value(param, self._widgets[param.name])
-            for param in self.parameters
-        }
+        values = {}
+        for param in self.parameters:
+            extracted = ParameterWidgetFactory.extract_value(param, self._widgets[param.name])
+            # Resolver valores dinámicos (today, now, etc.)
+            resolved = resolve_dynamic_value(extracted)
+            values[param.name] = resolved
+        return values
 
     def validate(self) -> tuple[bool, str]:
         values = self.get_values()

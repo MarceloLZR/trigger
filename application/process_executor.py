@@ -20,7 +20,7 @@ Etapas de progreso:
 """
 
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Optional
 
 import pandas as pd
@@ -28,6 +28,23 @@ from PySide6.QtCore import QThread, Signal
 
 from core.models import ProcessDefinition, ExecutionRecord, ExecutionStatus
 from core.interfaces import IConnectionProvider, ISqlTemplateEngine, IExcelExporter, ICsvExporter, IEmailSender
+
+
+def resolve_dynamic_value(value: Any) -> Any:
+    """Resuelve valores dinámicos como 'today', 'now', etc.
+    
+    Soporta:
+    - "today" → fecha de hoy en formato yyyyMMdd
+    - "today_iso" → fecha de hoy en formato yyyy-MM-dd
+    - "now" → timestamp actual (yyyyMMdd_HHmmss)
+    """
+    if value == "today":
+        return date.today().strftime("%Y%m%d")
+    if value == "today_iso":
+        return date.today().strftime("%Y-%m-%d")
+    if value == "now":
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
+    return value
 from infrastructure.sql_template_engine import MissingParameterError
 import os
 
@@ -74,11 +91,14 @@ class ProcessWorker(QThread):
         self.requestInterruption()
 
     def run(self):
+        # Resolver valores dinámicos en parámetros
+        resolved_params = {k: resolve_dynamic_value(v) for k, v in self.params.items()}
+        
         record = ExecutionRecord(
             process_id=self.process.id,
             process_name=self.process.name,
             started_at=datetime.now(),
-            parameters_used=dict(self.params),
+            parameters_used=resolved_params,
         )
 
         try:
@@ -96,7 +116,7 @@ class ProcessWorker(QThread):
 
             rendered_sql = self.template_engine.render(
                 raw_sql,
-                self.params,
+                resolved_params,
             )
 
             if self._cancelled:
