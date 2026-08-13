@@ -48,20 +48,25 @@ class AccountService:
         finally:
             cursor.close()
 
-    def obtener_credenciales(self, tipo: str, id_cuenta: int) -> dict:
-        table = self._table_name(tipo)
+    def obtener_credenciales_por_tabla(self, table: str, id_cuenta: int) -> dict:
+        """Obtener credenciales consultando directamente la tabla indicada.
+
+        Útil cuando el `process.json` contiene `account_table` con el nombre
+        completo (por ejemplo "DM.PROVEEDOR_FEEDBACK").
+        """
         conn = self.connection_provider.get_connection()
         cursor = conn.cursor()
         try:
-            # Buscamos por la columna que contenga 'ID' en su nombre, preferiblemente ID_CUENTA
             query = f"SELECT * FROM {table} WHERE ID_CUENTA = ?"
             try:
                 cursor.execute(query, id_cuenta)
             except Exception:
-                # Intento alternativo por si la columna tiene nombre distinto
                 cursor.execute(f"SELECT * FROM {table} WHERE ID = ?", id_cuenta)
-
             row = cursor.fetchone()
             return self._row_to_dict(cursor, row) if row else {}
         finally:
             cursor.close()
+
+    def obtener_credenciales(self, tipo: str, id_cuenta: int) -> dict:
+        table = self._table_name(tipo)
+        return self.obtener_credenciales_por_tabla(table, id_cuenta)

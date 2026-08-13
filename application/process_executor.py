@@ -256,6 +256,8 @@ class ProcessWorker(QThread):
                     eff_account_type = _eff('account_type', getattr(ft, 'account_type', None) if ft else None, proc_account_type)
                     eff_account_id = _eff('account_id', getattr(ft, 'account_id', None) if ft else None, proc_account_id)
                     eff_account_folder = _eff('account_folder', getattr(ft, 'account_folder', None) if ft else None, proc_account_folder)
+                    # Optional explicit table name declared in process.json
+                    eff_account_table = _eff('account_table', getattr(ft, 'account_table', None) if ft else None, getattr(self.process, 'account_table', None))
                     eff_flg_dropeo     = (getattr(ft, 'emblue_flg_dropeo', None) if ft else None) or proc_flg_dropeo
                     eff_flg_fecha_base = (getattr(ft, 'emblue_flg_fecha_base', None) if ft else None) or proc_flg_fecha_base
 
@@ -290,9 +292,12 @@ class ProcessWorker(QThread):
                             self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {exc}")
 
                     # ── Cuenta genérica (SFTP/Emblue u otra) ───────────────────────
-                    if eff_account_type and eff_account_id:
+                    if (eff_account_type and eff_account_id) or (eff_account_table and eff_account_id):
                         try:
-                            creds = _get_account_creds(eff_account_type, eff_account_id)
+                            if eff_account_table:
+                                creds = _account_service.obtener_credenciales_por_tabla(eff_account_table, int(eff_account_id))
+                            else:
+                                creds = _get_account_creds(eff_account_type, eff_account_id)
                             host = _pick(creds, ['HOST', 'host', 'SERVIDOR', 'server'])
                             user = _pick(creds, ['USUARIO', 'usuario', 'USER', 'username'])
                             pwd = _pick(creds, ['CONTRASEÑA', 'CONTRASENA', 'contrasena', 'PASSWORD', 'password'])
