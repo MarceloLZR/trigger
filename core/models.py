@@ -58,6 +58,8 @@ class FinalTable:
     account_type: Optional[str] = None
     account_id: Optional[int] = None
     account_folder: Optional[str] = None
+    # Optional explicit table that contains the credentials (e.g. DM.CUENTAS_...)
+    account_table: Optional[str] = None
     account_flags: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
@@ -83,6 +85,7 @@ class FinalTable:
             emblue_flg_fecha_base=data.get("emblue_flg_fecha_base", 0),
             account_type=data.get('account_type'),
             account_id=data.get('account_id'),
+            account_table=data.get('account_table'),
             account_folder=data.get('account_folder'),
             account_flags=data.get('account_flags', {}),
         )
@@ -160,6 +163,7 @@ class ProcessDefinition:
     account_user: Optional[str] = None
     account_pwd: Optional[str] = None
     account_host: Optional[str] = None
+    account_table: Optional[str] = None
     account_flags: dict[str, Any] = field(default_factory=dict)
 
     # Password protection for generated files
@@ -213,6 +217,7 @@ class ProcessDefinition:
             emblue_flg_fecha_base=data.get("emblue_flg_fecha_base", 0),
             account_type=data.get('account_type'),
             account_id=data.get('account_id'),
+            account_table=data.get('account_table'),
             account_folder=data.get('account_folder'),
             account_user=data.get('account_user'),
             account_pwd=data.get('account_pwd'),

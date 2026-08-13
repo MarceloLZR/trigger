@@ -453,6 +453,8 @@ class ProcessRunView(QWidget):
                     'send_sftp': getattr(ft, 'send_sftp', None),
                     'emblue_id_cuenta': ft.emblue_id_cuenta or '',
                     'emblue_carpeta': ft.emblue_carpeta or '',
+                    'account_table': getattr(ft, 'account_table', '') or '',
+                    'account_id': getattr(ft, 'account_id', '') or '',
                     'emblue_flg_dropeo': int(ft.emblue_flg_dropeo or 0),
                     'emblue_flg_fecha_base': int(ft.emblue_flg_fecha_base or 0),
                     'export_name': ft.export_name or ''
