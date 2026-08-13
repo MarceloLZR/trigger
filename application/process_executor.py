@@ -159,8 +159,7 @@ class ProcessWorker(QThread):
 
             if has_data:
                 import tempfile
-                from infrastructure.account_service import AccountService
-                from infrastructure.emblue_service import EmblueService
+                from infrastructure.sftp_service import SftpService
 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 rendered_process_name = self._render_string(self.process.name, record.parameters_used)
@@ -191,13 +190,12 @@ class ProcessWorker(QThread):
 
                 # Services and caches
                 _account_creds_cache: dict = {}
-                _account_service = AccountService(self.connection_provider)
-                _emblue_service = EmblueService(self.connection_provider)
+                _sftp_service = SftpService(self.connection_provider)
 
                 def _get_account_creds(tipo, id_cuenta):
                     key = f"{tipo}:{id_cuenta}"
                     if key not in _account_creds_cache:
-                        _account_creds_cache[key] = _account_service.obtener_credenciales(tipo, int(id_cuenta))
+                        _account_creds_cache[key] = _sftp_service.obtener_credenciales(tipo, int(id_cuenta))
                     return _account_creds_cache[key]
 
                 # Helper to pick common keys from credential dict (case-insensitive)
@@ -297,7 +295,7 @@ class ProcessWorker(QThread):
                     if (eff_account_type and eff_account_id) or (eff_account_table and eff_account_id):
                         try:
                             if eff_account_table:
-                                creds = _account_service.obtener_credenciales_por_tabla(eff_account_table, int(eff_account_id))
+                                creds = _sftp_service.obtener_credenciales_por_tabla(eff_account_table, int(eff_account_id))
                             else:
                                 creds = _get_account_creds(eff_account_type, eff_account_id)
                             host = _pick(creds, ['HOST', 'host', 'SERVIDOR', 'server'])
@@ -308,13 +306,13 @@ class ProcessWorker(QThread):
                             if not all([host, user, pwd]):
                                 self.log.emit(f"⚠️ No se encontraron credenciales para cuenta {eff_account_type} (ID {eff_account_id}) para '{result['label']}'. Saltando.")
                             else:
-                                carpeta_remota = _emblue_service.armar_carpeta_emblue(carpeta)
+                                carpeta_remota = _sftp_service.armar_carpeta(carpeta)
                                 fd, temp_csv = tempfile.mkstemp(suffix=".csv")
                                 os.close(fd)
                                 try:
                                     df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
                                     archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
-                                    _emblue_service.subir_sftp(
+                                    _sftp_service.subir_sftp(
                                         servidor=host, usuario=user,
                                         contrasena=pwd,
                                         archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
@@ -325,7 +323,7 @@ class ProcessWorker(QThread):
                                         with os.fdopen(fd_xml, 'w') as fx:
                                             fx.write('<?xml version="1.0" encoding="utf-8"?>\n<root></root>')
                                         try:
-                                            _emblue_service.subir_sftp(
+                                            _sftp_service.subir_sftp(
                                                 servidor=host, usuario=user,
                                                 contrasena=pwd,
                                                 archivo_local=temp_xml,
@@ -339,7 +337,7 @@ class ProcessWorker(QThread):
                                     # Registrar en BD sólo si es Emblue (SP específico)
                                     if eff_account_type.lower() == 'emblue':
                                         tabla_bd = ft.table if ft else self.process.final_tables[0].table
-                                        _emblue_service.registrar_y_marcar_enviado(
+                                        _sftp_service.registrar_y_marcar_enviado(
                                             nombre_campana=rendered_process_name,
                                             tabla=tabla_bd,
                                             flg_dropeo=eff_flg_dropeo,
