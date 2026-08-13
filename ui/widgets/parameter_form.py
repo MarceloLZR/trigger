@@ -130,6 +130,13 @@ class ParameterFormWidget(QWidget):
         form.setSpacing(10)
 
         for param in parameters:
+            # Solo mostrar parámetros visibles
+            if not param.visible:
+                # Aun así almacenar el valor por defecto para get_values()
+                widget = ParameterWidgetFactory.create(param, initial_values.get(param.name))
+                self._widgets[param.name] = widget
+                continue
+            
             widget = ParameterWidgetFactory.create(param, initial_values.get(param.name))
             self._widgets[param.name] = widget
             label = QLabel(param.label + (" *" if param.required else ""))

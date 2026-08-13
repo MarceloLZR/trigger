@@ -103,6 +103,7 @@ class Parameter:
     required: bool = True
     options: list[str] = field(default_factory=list)   # para type == combo
     help_text: str = ""
+    visible: bool = True           # Si False, no se muestra en la UI pero se usa
 
     @staticmethod
     def from_dict(data: dict) -> "Parameter":
@@ -114,6 +115,7 @@ class Parameter:
             required=data.get("required", True),
             options=data.get("options", []),
             help_text=data.get("help_text", ""),
+            visible=data.get("visible", True),
         )
 
 
