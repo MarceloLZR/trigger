@@ -307,32 +307,59 @@ class ProcessWorker(QThread):
                                 self.log.emit(f"⚠️ No se encontraron credenciales para cuenta {eff_account_type} (ID {eff_account_id}) para '{result['label']}'. Saltando.")
                             else:
                                 carpeta_remota = _sftp_service.armar_carpeta(carpeta)
-                                fd, temp_csv = tempfile.mkstemp(suffix=".csv")
-                                os.close(fd)
-                                try:
-                                    df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
-                                    archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
-                                    _sftp_service.subir_sftp(
-                                        servidor=host, usuario=user,
-                                        contrasena=pwd,
-                                        archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
-                                        logger=self.log.emit
-                                    )
-                                    if eff_flg_fecha_base:
-                                        fd_xml, temp_xml = tempfile.mkstemp(suffix=".xml")
-                                        with os.fdopen(fd_xml, 'w') as fx:
-                                            fx.write('<?xml version="1.0" encoding="utf-8"?>\n<root></root>')
-                                        try:
-                                            _sftp_service.subir_sftp(
-                                                servidor=host, usuario=user,
-                                                contrasena=pwd,
-                                                archivo_local=temp_xml,
-                                                archivo_remoto=carpeta_remota + safe_filename + ".xml",
-                                                logger=self.log.emit
-                                            )
-                                        finally:
-                                            if os.path.exists(temp_xml):
-                                                os.remove(temp_xml)
+                                
+                                # Determinar formato SFTP (csv o excel)
+                                sftp_format = getattr(ft, 'sftp_format', 'csv') if ft else 'csv'
+                                
+                                if sftp_format.lower() == 'excel':
+                                    # Subir como Excel
+                                    fd_xlsx, temp_xlsx = tempfile.mkstemp(suffix=".xlsx")
+                                    os.close(fd_xlsx)
+                                    try:
+                                        self.excel_exporter.export(df, temp_xlsx, sheet_name=result["label"][:31])
+                                        archivo_remoto = carpeta_remota + safe_filename + ".xlsx"
+                                        _sftp_service.subir_sftp(
+                                            servidor=host, usuario=user,
+                                            contrasena=pwd,
+                                            archivo_local=temp_xlsx, archivo_remoto=archivo_remoto,
+                                            logger=self.log.emit
+                                        )
+                                        self.log.emit(f"✅ Excel subido a SFTP: {archivo_remoto}")
+                                    finally:
+                                        if os.path.exists(temp_xlsx):
+                                            os.remove(temp_xlsx)
+                                else:
+                                    # Subir como CSV (default)
+                                    fd, temp_csv = tempfile.mkstemp(suffix=".csv")
+                                    os.close(fd)
+                                    try:
+                                        df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
+                                        archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
+                                        _sftp_service.subir_sftp(
+                                            servidor=host, usuario=user,
+                                            contrasena=pwd,
+                                            archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
+                                            logger=self.log.emit
+                                        )
+                                    finally:
+                                        if os.path.exists(temp_csv):
+                                            os.remove(temp_csv)
+                                
+                                if eff_flg_fecha_base:
+                                    fd_xml, temp_xml = tempfile.mkstemp(suffix=".xml")
+                                    with os.fdopen(fd_xml, 'w') as fx:
+                                        fx.write('<?xml version="1.0" encoding="utf-8"?>\n<root></root>')
+                                    try:
+                                        _sftp_service.subir_sftp(
+                                            servidor=host, usuario=user,
+                                            contrasena=pwd,
+                                            archivo_local=temp_xml,
+                                            archivo_remoto=carpeta_remota + safe_filename + ".xml",
+                                            logger=self.log.emit
+                                        )
+                                    finally:
+                                        if os.path.exists(temp_xml):
+                                            os.remove(temp_xml)
 
                                     # Registrar en BD sólo si es Emblue (SP específico)
                                     if eff_account_type.lower() == 'emblue':
@@ -346,9 +373,6 @@ class ProcessWorker(QThread):
                                             carpeta_emblue=carpeta,
                                             logger=self.log.emit
                                         )
-                                finally:
-                                    if os.path.exists(temp_csv):
-                                        os.remove(temp_csv)
                         except Exception as exc:
                             self.log.emit(f"❌ Error envío cuenta {eff_account_type} ({result['label']}): {exc}")
 

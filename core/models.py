@@ -50,6 +50,8 @@ class FinalTable:
     send_emblue: Optional[bool] = None
     # Per-table generic send flag (True/False/None -> None hereda del proceso)
     send_sftp: Optional[bool] = None
+    # Formato SFTP: "csv" o "excel" (default: "csv")
+    sftp_format: str = "csv"
     emblue_id_cuenta: Optional[int] = None
     emblue_carpeta: Optional[str] = None
     emblue_flg_dropeo: int = 0
@@ -79,6 +81,7 @@ class FinalTable:
             export_csv_folder=data.get("export_csv_folder"),
             send_emblue=send_emblue,
             send_sftp=send_sftp,
+            sftp_format=data.get("sftp_format", "csv"),
             emblue_id_cuenta=data.get("emblue_id_cuenta"),
             emblue_carpeta=data.get("emblue_carpeta"),
             emblue_flg_dropeo=data.get("emblue_flg_dropeo", 0),
