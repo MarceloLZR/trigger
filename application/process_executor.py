@@ -271,7 +271,8 @@ class ProcessWorker(QThread):
 
                     eff_excel_folder = _eff('export_excel_folder', ft.export_excel_folder if ft else None, proc_excel_folder)
                     eff_csv_folder   = _eff('export_csv_folder', ft.export_csv_folder if ft else None, proc_csv_folder)
-                    eff_password     = _eff('password', ft.password if ft else None, proc_password)
+                    _raw_password    = _eff('password', ft.password if ft else None, proc_password)
+                    eff_password     = self._render_string(_raw_password, record.parameters_used) if _raw_password else _raw_password
 
                     # Account resolution (per-table overrides possible)
                     eff_account_type = _eff('account_type', getattr(ft, 'account_type', None) if ft else None, proc_account_type)
@@ -297,7 +298,7 @@ class ProcessWorker(QThread):
                             
                             # Guardar información de la tabla
                             if result["label"] not in tabla_info:
-                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": [], "password": eff_password or ''}
                             tabla_info[result["label"]]["rutas"].append({
                                 "ruta": export_path,
                                 "nombre_archivo": os.path.basename(export_path),
@@ -321,7 +322,7 @@ class ProcessWorker(QThread):
                             
                             # Guardar información de la tabla
                             if result["label"] not in tabla_info:
-                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": []}
+                                tabla_info[result["label"]] = {"filas": df.shape[0], "rutas": [], "password": eff_password or ''}
                             tabla_info[result["label"]]["rutas"].append({
                                 "ruta": export_path,
                                 "nombre_archivo": os.path.basename(export_path),
@@ -462,13 +463,19 @@ class ProcessWorker(QThread):
                             # Reemplazar parámetros del proceso
                             for param_name, param_value in record.parameters_used.items():
                                 html_body = html_body.replace(f"{{{param_name}}}", str(param_value))
+
+                            # Contraseña efectiva del proceso (ya con parámetros resueltos)
+                            _mail_password = self.export_options.get('export_password') or ''
+                            _mail_password = self._render_string(_mail_password, record.parameters_used) if _mail_password else _mail_password
+                            html_body = html_body.replace("{export_password}", _mail_password or 'Sin contraseña')
                             
                             # Reemplazar información de tablas
-                            # {tabla_LABEL_ruta}, {tabla_LABEL_filas}, {tabla_LABEL_nombre_archivo}, etc.
+                            # {tabla_LABEL_ruta}, {tabla_LABEL_filas}, {tabla_LABEL_nombre_archivo}, {tabla_LABEL_password}, etc.
                             for tabla_label, info in tabla_info.items():
                                 # Sanitizar el label para usarlo en la variable
                                 safe_label = tabla_label.replace(" ", "_").replace("-", "_")
                                 html_body = html_body.replace(f"{{tabla_{safe_label}_filas}}", str(info["filas"]))
+                                html_body = html_body.replace(f"{{tabla_{safe_label}_password}}", info.get("password") or 'Sin contraseña')
                                 
                                 # Si hay múltiples rutas, usar la primera o crear una lista
                                 if info["rutas"]:
