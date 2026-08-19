@@ -28,10 +28,14 @@ from application.history_service import HistoryService
 from ui.widgets.parameter_form import ParameterFormWidget
 from ui.widgets.preview_table import PreviewTableWidget
 from ui.widgets.console_widget import ConsoleWidget
+from infrastructure.gpg_service import GpgService
 
 
 class ProcessRunView(QWidget):
     back_requested = Signal()
+
+    # Memoria de la última llave GPG seleccionada (compartida entre instancias)
+    _gpg_last_keyid: str = ""
 
     def __init__(
         self,
@@ -303,6 +307,59 @@ class ProcessRunView(QWidget):
             pwd_gb.setLayout(pwd_layout)
             # se mantiene en self.emblue_container para agregarse a la pestaña
             self.emblue_container.addWidget(pwd_gb)
+
+        # ── Encriptación GPG / Kleopatra ─────────────────────────────────────
+        self._gpg_service = GpgService()
+        self._gpg_claves: list = []   # lista de dicts de llaves disponibles
+
+        gpg_gb = QGroupBox("Encriptación GPG / Kleopatra")
+        gpg_layout = QFormLayout()
+
+        # Checkbox principal
+        self.gpg_encrypt_cb = QCheckBox("Cifrar archivos exportados con GPG")
+        saved_gpg = last_export_opts.get('gpg_encrypt', getattr(process, 'gpg_encrypt', False))
+        self.gpg_encrypt_cb.setChecked(bool(saved_gpg))
+        gpg_layout.addRow("", self.gpg_encrypt_cb)
+
+        # Desplegable de llaves
+        key_row = QHBoxLayout()
+        self.gpg_key_combo = QComboBox()
+        self.gpg_key_combo.setMinimumWidth(320)
+        self.gpg_key_combo.setPlaceholderText("Cargando llaves...")
+        key_row.addWidget(self.gpg_key_combo)
+
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setFixedWidth(32)
+        refresh_btn.setToolTip("Recargar llaves del keyring GPG")
+        refresh_btn.clicked.connect(self._gpg_reload_keys)
+        key_row.addWidget(refresh_btn)
+        gpg_layout.addRow("Llave pública:", key_row)
+
+        # Carpeta destino del .gpg
+        self.gpg_folder_input = QLineEdit()
+        self.gpg_folder_input.setPlaceholderText("Misma carpeta que el archivo exportado")
+        saved_gpg_folder = last_export_opts.get('gpg_export_folder', getattr(process, 'gpg_export_folder', '') or '')
+        self.gpg_folder_input.setText(saved_gpg_folder)
+        gpg_folder_row = QHBoxLayout()
+        gpg_folder_row.addWidget(self.gpg_folder_input)
+        browse_gpg_btn = QPushButton("...")
+        browse_gpg_btn.setFixedWidth(30)
+        browse_gpg_btn.clicked.connect(self._gpg_browse_folder)
+        gpg_folder_row.addWidget(browse_gpg_btn)
+        gpg_layout.addRow("Carpeta destino .gpg:", gpg_folder_row)
+
+        # Label de estado
+        self.gpg_status_label = QLabel("")
+        self.gpg_status_label.setStyleSheet("color: gray; font-size: 11px;")
+        gpg_layout.addRow("", self.gpg_status_label)
+
+        gpg_gb.setLayout(gpg_layout)
+        self.emblue_container.addWidget(gpg_gb)
+
+        # Cargar llaves al inicializar
+        _saved_gpg_keyid = last_export_opts.get('gpg_keyid', getattr(process, 'gpg_keyid', None) or ProcessRunView._gpg_last_keyid)
+        self._gpg_reload_keys(preselect_keyid=_saved_gpg_keyid)
+
 
         # Toggle Preview Option
         self.show_preview_cb = QCheckBox("Auto cargar preview al finalizar")
@@ -607,6 +664,45 @@ class ProcessRunView(QWidget):
                     except Exception:
                         pass
 
+    def _gpg_reload_keys(self, preselect_keyid: str = ""):
+        """Recarga la lista de llaves GPG disponibles y actualiza el combo."""
+        self.gpg_key_combo.clear()
+        if not self._gpg_service.is_available():
+            self.gpg_status_label.setText("⚠️ gpg.exe no encontrado en la ruta esperada.")
+            self.gpg_key_combo.addItem("GPG no disponible", userData=None)
+            return
+
+        try:
+            self._gpg_claves = self._gpg_service.obtener_claves()
+            if not self._gpg_claves:
+                self.gpg_status_label.setText("No hay llaves públicas en el keyring.")
+                self.gpg_key_combo.addItem("(sin llaves)", userData=None)
+                return
+
+            for clave in self._gpg_claves:
+                self.gpg_key_combo.addItem(clave["label"], userData=clave["keyid"])
+
+            # Preseleccionar: 1) keyid guardado, 2) última usada en sesión
+            target = preselect_keyid or ProcessRunView._gpg_last_keyid
+            if target:
+                for i, clave in enumerate(self._gpg_claves):
+                    if clave["keyid"] == target or clave.get("fingerprint") == target:
+                        self.gpg_key_combo.setCurrentIndex(i)
+                        break
+
+            self.gpg_status_label.setText(f"{len(self._gpg_claves)} llave(s) disponible(s).")
+
+        except Exception as exc:
+            self.gpg_status_label.setText(f"Error: {exc}")
+            self.gpg_key_combo.addItem("Error al leer llaves", userData=None)
+
+    def _gpg_browse_folder(self):
+        """Abre diálogo para elegir la carpeta destino del .gpg."""
+        current = self.gpg_folder_input.text()
+        folder = QFileDialog.getExistingDirectory(self, "Carpeta destino GPG", current)
+        if folder:
+            self.gpg_folder_input.setText(folder)
+
     def _browse_folder_for_input(self, input_widget: QLineEdit):
         current_path = input_widget.text()
         folder = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta", current_path)
@@ -666,8 +762,18 @@ class ProcessRunView(QWidget):
             
             "export_password": self.password_input.text() if self.password_input else None,
             "show_preview": self.show_preview_cb.isChecked(),
-            "table_overrides": self._collect_table_overrides()
+            "table_overrides": self._collect_table_overrides(),
+
+            # ── GPG / Kleopatra ──────────────────────────────────────────────
+            "gpg_encrypt": self.gpg_encrypt_cb.isChecked(),
+            "gpg_keyid": self.gpg_key_combo.currentData(),
+            "gpg_export_folder": self.gpg_folder_input.text().strip() or None,
         }
+
+        # Recordar la llave seleccionada para la próxima vez
+        selected_keyid = self.gpg_key_combo.currentData()
+        if selected_keyid:
+            ProcessRunView._gpg_last_keyid = selected_keyid
 
         self.worker = ProcessWorker(
             process=self.process,

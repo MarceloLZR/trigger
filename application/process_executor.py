@@ -213,6 +213,14 @@ class ProcessWorker(QThread):
                 _account_creds_cache: dict = {}
                 _sftp_service = SftpService(self.connection_provider)
 
+                # GPG service
+                from infrastructure.gpg_service import GpgService, GpgNotFoundError, GpgEncryptionError
+                _gpg_service = GpgService()
+                # Options from UI
+                proc_gpg_encrypt = self.export_options.get('gpg_encrypt', getattr(self.process, 'gpg_encrypt', False))
+                proc_gpg_keyid = self.export_options.get('gpg_keyid') or getattr(self.process, 'gpg_keyid', None)
+                proc_gpg_export_folder = self.export_options.get('gpg_export_folder') or getattr(self.process, 'gpg_export_folder', None)
+
                 def _get_account_creds(tipo, id_cuenta):
                     key = f"{tipo}:{id_cuenta}"
                     if key not in _account_creds_cache:
@@ -293,6 +301,23 @@ class ProcessWorker(QThread):
                                 self.log.emit(f"🔒 Excel protegido: {export_path}")
                             else:
                                 self.log.emit(f"✅ Excel guardado: {export_path}")
+
+                            # ── GPG: cifrar Excel antes de pasar a la lista de adjuntos ──
+                            eff_gpg = _eff('gpg_encrypt', getattr(ft, 'gpg_encrypt', None) if ft else None, proc_gpg_encrypt)
+                            eff_gpg_keyid = _eff('gpg_keyid', getattr(ft, 'gpg_keyid', None) if ft else None, proc_gpg_keyid)
+                            eff_gpg_folder = _eff('gpg_export_folder', getattr(ft, 'gpg_export_folder', None) if ft else None, proc_gpg_export_folder)
+                            if eff_gpg and eff_gpg_keyid:
+                                try:
+                                    export_path = _gpg_service.cifrar_archivo(
+                                        ruta_archivo=export_path,
+                                        keyid=eff_gpg_keyid,
+                                        carpeta_salida=eff_gpg_folder,
+                                        eliminar_original=True,
+                                        logger=self.log.emit,
+                                    )
+                                except Exception as gpg_exc:
+                                    self.log.emit(f"❌ Error GPG (Excel): {gpg_exc}")
+
                             if attach_excel:
                                 exported_files.append(export_path)
                             
@@ -317,6 +342,23 @@ class ProcessWorker(QThread):
                                 self.log.emit(f"🔒 CSV protegido como ZIP: {export_path}")
                             else:
                                 self.log.emit(f"✅ CSV guardado: {export_path}")
+
+                            # ── GPG: cifrar CSV antes de pasar a la lista de adjuntos ──
+                            eff_gpg = _eff('gpg_encrypt', getattr(ft, 'gpg_encrypt', None) if ft else None, proc_gpg_encrypt)
+                            eff_gpg_keyid = _eff('gpg_keyid', getattr(ft, 'gpg_keyid', None) if ft else None, proc_gpg_keyid)
+                            eff_gpg_folder = _eff('gpg_export_folder', getattr(ft, 'gpg_export_folder', None) if ft else None, proc_gpg_export_folder)
+                            if eff_gpg and eff_gpg_keyid:
+                                try:
+                                    export_path = _gpg_service.cifrar_archivo(
+                                        ruta_archivo=export_path,
+                                        keyid=eff_gpg_keyid,
+                                        carpeta_salida=eff_gpg_folder,
+                                        eliminar_original=True,
+                                        logger=self.log.emit,
+                                    )
+                                except Exception as gpg_exc:
+                                    self.log.emit(f"❌ Error GPG (CSV): {gpg_exc}")
+
                             if attach_csv:
                                 exported_files.append(export_path)
                             
@@ -330,8 +372,7 @@ class ProcessWorker(QThread):
                             })
                         except Exception as exc:
                             self.log.emit(f"❌ Error al guardar CSV ({result['label']}): {exc}")
-
-                    # ── Cuenta genérica (SFTP/Emblue u otra) ───────────────────────
+                                             # ── Cuenta genérica (SFTP/Emblue u otra) ─────────────────────
                     if (eff_account_type and eff_account_id) or (eff_account_table and eff_account_id):
                         try:
                             if eff_account_table:
@@ -350,6 +391,11 @@ class ProcessWorker(QThread):
                                 
                                 # Determinar formato SFTP (csv o excel)
                                 sftp_format = getattr(ft, 'sftp_format', 'csv') if ft else 'csv'
+
+                                # GPG settings para el archivo temporal a subir
+                                eff_gpg = _eff('gpg_encrypt', getattr(ft, 'gpg_encrypt', None) if ft else None, proc_gpg_encrypt)
+                                eff_gpg_keyid = _eff('gpg_keyid', getattr(ft, 'gpg_keyid', None) if ft else None, proc_gpg_keyid)
+                                eff_gpg_folder = _eff('gpg_export_folder', getattr(ft, 'gpg_export_folder', None) if ft else None, proc_gpg_export_folder)
                                 
                                 if sftp_format.lower() == 'excel':
                                     # Subir como Excel
@@ -357,11 +403,26 @@ class ProcessWorker(QThread):
                                     os.close(fd_xlsx)
                                     try:
                                         self.excel_exporter.export(df, temp_xlsx, sheet_name=result["label"][:31])
-                                        archivo_remoto = carpeta_remota + safe_filename + ".xlsx"
+                                        # ── GPG antes de subir ──
+                                        archivo_a_subir = temp_xlsx
+                                        nombre_remoto_base = safe_filename + ".xlsx"
+                                        if eff_gpg and eff_gpg_keyid:
+                                            try:
+                                                archivo_a_subir = _gpg_service.cifrar_archivo(
+                                                    ruta_archivo=temp_xlsx,
+                                                    keyid=eff_gpg_keyid,
+                                                    carpeta_salida=eff_gpg_folder,
+                                                    eliminar_original=True,
+                                                    logger=self.log.emit,
+                                                )
+                                                nombre_remoto_base = os.path.basename(archivo_a_subir)
+                                            except Exception as gpg_exc:
+                                                self.log.emit(f"❌ Error GPG (SFTP Excel): {gpg_exc}")
+                                        archivo_remoto = carpeta_remota + nombre_remoto_base
                                         _sftp_service.subir_sftp(
                                             servidor=host, usuario=user,
                                             contrasena=pwd,
-                                            archivo_local=temp_xlsx, archivo_remoto=archivo_remoto,
+                                            archivo_local=archivo_a_subir, archivo_remoto=archivo_remoto,
                                             logger=self.log.emit
                                         )
                                         self.log.emit(f"✅ Excel subido a SFTP: {archivo_remoto}")
@@ -377,19 +438,44 @@ class ProcessWorker(QThread):
                                             "cuenta": eff_account_type
                                         })
                                     finally:
+                                        # Limpiar archivos temporales
+                                        for tmp in [temp_xlsx, archivo_a_subir]:
+                                            if tmp and tmp != temp_xlsx and os.path.exists(tmp):
+                                                try:
+                                                    os.remove(tmp)
+                                                except Exception:
+                                                    pass
                                         if os.path.exists(temp_xlsx):
-                                            os.remove(temp_xlsx)
+                                            try:
+                                                os.remove(temp_xlsx)
+                                            except Exception:
+                                                pass
                                 else:
                                     # Subir como CSV (default)
                                     fd, temp_csv = tempfile.mkstemp(suffix=".csv")
                                     os.close(fd)
                                     try:
                                         df.to_csv(temp_csv, sep=';', index=False, encoding='utf-8')
-                                        archivo_csv_remoto = carpeta_remota + safe_filename + ".csv"
+                                        # ── GPG antes de subir ──
+                                        archivo_a_subir = temp_csv
+                                        nombre_remoto_base = safe_filename + ".csv"
+                                        if eff_gpg and eff_gpg_keyid:
+                                            try:
+                                                archivo_a_subir = _gpg_service.cifrar_archivo(
+                                                    ruta_archivo=temp_csv,
+                                                    keyid=eff_gpg_keyid,
+                                                    carpeta_salida=eff_gpg_folder,
+                                                    eliminar_original=True,
+                                                    logger=self.log.emit,
+                                                )
+                                                nombre_remoto_base = os.path.basename(archivo_a_subir)
+                                            except Exception as gpg_exc:
+                                                self.log.emit(f"❌ Error GPG (SFTP CSV): {gpg_exc}")
+                                        archivo_csv_remoto = carpeta_remota + nombre_remoto_base
                                         _sftp_service.subir_sftp(
                                             servidor=host, usuario=user,
                                             contrasena=pwd,
-                                            archivo_local=temp_csv, archivo_remoto=archivo_csv_remoto,
+                                            archivo_local=archivo_a_subir, archivo_remoto=archivo_csv_remoto,
                                             logger=self.log.emit
                                         )
                                         
@@ -404,8 +490,18 @@ class ProcessWorker(QThread):
                                             "cuenta": eff_account_type
                                         })
                                     finally:
+                                        # Limpiar archivos temporales
+                                        for tmp in [temp_csv, archivo_a_subir]:
+                                            if tmp and tmp != temp_csv and os.path.exists(tmp):
+                                                try:
+                                                    os.remove(tmp)
+                                                except Exception:
+                                                    pass
                                         if os.path.exists(temp_csv):
-                                            os.remove(temp_csv)
+                                            try:
+                                                os.remove(temp_csv)
+                                            except Exception:
+                                                pass
                                 
                                 if eff_flg_fecha_base:
                                     fd_xml, temp_xml = tempfile.mkstemp(suffix=".xml")
@@ -573,25 +669,38 @@ class ProcessWorker(QThread):
         """
         Encripta un archivo .xlsx existente con contraseña de apertura.
         Usa msoffcrypto-tool para aplicar cifrado compatible con Office.
-        Devuelve la misma ruta (sobreescribe el archivo original).
+        Devuelve la misma ruta, reemplazando el archivo original.
+
+        Importante:
+        El archivo temporal se crea en la misma carpeta del archivo final
+        para evitar errores con rutas UNC o unidades de red.
         """
         import msoffcrypto
         import tempfile
+        import os
 
-        # Escribimos el archivo encriptado en un temporal y luego reemplazamos el original
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+        folder = os.path.dirname(path)
+
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix=".xlsx",
+            dir=folder
+        )
         os.close(tmp_fd)
+
         try:
             with open(path, "rb") as f_in:
                 office_file = msoffcrypto.OfficeFile(f_in)
-                office_file.load_key(password=password)
+
                 with open(tmp_path, "wb") as f_out:
                     office_file.encrypt(password, f_out)
+
             os.replace(tmp_path, path)
+
         except Exception:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
             raise
+
         return path
 
     @staticmethod

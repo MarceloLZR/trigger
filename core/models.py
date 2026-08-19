@@ -52,6 +52,11 @@ class FinalTable:
     send_sftp: Optional[bool] = None
     # Formato SFTP: "csv" o "excel" (default: "csv")
     sftp_format: str = "csv"
+
+    # GPG encryption (per-table overrides; None = heredar del proceso)
+    gpg_encrypt: Optional[bool] = None
+    gpg_keyid: Optional[str] = None        # Key ID o fingerprint GPG
+    gpg_export_folder: Optional[str] = None  # Carpeta destino del .gpg
     emblue_id_cuenta: Optional[int] = None
     emblue_carpeta: Optional[str] = None
     emblue_flg_dropeo: int = 0
@@ -72,6 +77,9 @@ class FinalTable:
         send_sftp = data.get('send_sftp')
         if send_sftp is not None:
             send_sftp = bool(send_sftp)
+        gpg_encrypt = data.get('gpg_encrypt')
+        if gpg_encrypt is not None:
+            gpg_encrypt = bool(gpg_encrypt)
         return FinalTable(
             table=data["table"],
             label=data.get("label", data["table"]),
@@ -91,6 +99,9 @@ class FinalTable:
             account_table=data.get('account_table'),
             account_folder=data.get('account_folder'),
             account_flags=data.get('account_flags', {}),
+            gpg_encrypt=gpg_encrypt,
+            gpg_keyid=data.get('gpg_keyid'),
+            gpg_export_folder=data.get('gpg_export_folder'),
         )
 
 
@@ -175,6 +186,12 @@ class ProcessDefinition:
     export_password_enabled: bool = False
     export_password_default: Optional[str] = None
 
+    # GPG / Kleopatra encryption
+    gpg_encrypt: bool = False              # ¿Cifrar los archivos exportados?
+    gpg_keyid: Optional[str] = None        # Key ID preconfigurado (puede sobreescribirse en UI)
+    gpg_export_folder: Optional[str] = None  # Carpeta destino de archivos .gpg
+    gpg_delete_original: bool = True       # Eliminar el original tras cifrar
+
     @property
     def final_table(self) -> str:
         """Compatibilidad con código antiguo que accede a final_table (str)."""
@@ -230,6 +247,10 @@ class ProcessDefinition:
             account_flags=data.get('account_flags', {}),
             export_password_enabled=data.get("export_password_enabled", False),
             export_password_default=data.get("export_password_default"),
+            gpg_encrypt=data.get("gpg_encrypt", False),
+            gpg_keyid=data.get("gpg_keyid"),
+            gpg_export_folder=data.get("gpg_export_folder"),
+            gpg_delete_original=data.get("gpg_delete_original", True),
         )
 
 
