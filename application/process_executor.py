@@ -162,6 +162,24 @@ class ProcessWorker(QThread):
                 )
                 results.append({"label": ft.label, "df": df, "export_name": ft.export_name, "final_table": ft})
 
+            # Hook de post-procesamiento dinámico en Python
+            post_process_script = self.process.folder / "post_process.py" if self.process.folder else None
+            if post_process_script and post_process_script.exists():
+                self.log.emit("Ejecutando script de post-procesamiento dinámico...")
+                try:
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("dynamic_post_process", post_process_script)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    if hasattr(module, "post_process"):
+                        module.post_process(results, resolved_params, lambda msg: self.log.emit(msg), conn)
+                        self.log.emit("Post-procesamiento dinámico completado con éxito.")
+                    else:
+                        self.log.emit("[Advertencia] post_process.py no define la función 'post_process'.")
+                except Exception as ex:
+                    self.log.emit(f"[Error] Error en script de post-procesamiento: {ex}")
+                    raise ex
+
             total_rows = sum(r["df"].shape[0] for r in results)
             record.row_count = total_rows
             record.finished_at = datetime.now()

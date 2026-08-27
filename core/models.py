@@ -21,6 +21,7 @@ class ParameterType(str, Enum):
     NUMBER = "number"
     COMBO = "combo"
     CHECKBOX = "checkbox"
+    TABLE = "table"
 
 
 @dataclass

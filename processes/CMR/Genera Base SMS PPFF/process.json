@@ -1,0 +1,162 @@
+{
+  "name": "Generación de Base SMS PPFF",
+  "module": "CMR",
+  "description": "Genera bases de SMS/Email segmentadas por producto (SAE/SAR), monto mínimo, propensión y enrolamiento digital con un motor de reglas visual editable.",
+  "parameters": [
+    {
+      "name": "CAMPANA",
+      "label": "Mes de campaña",
+      "type": "month",
+      "default": "current",
+      "required": true
+    },
+    {
+      "name": "ELECCION_TIPO",
+      "label": "Tipo de Elección",
+      "type": "combo",
+      "options": [
+        "SAR y SAE",
+        "Solo SAR",
+        "Solo SAE"
+      ],
+      "default": "SAR y SAE",
+      "required": true
+    },
+    {
+      "name": "FILTRAR_MONTO",
+      "label": "Filtrar por Monto Mínimo",
+      "type": "checkbox",
+      "default": false,
+      "required": false
+    },
+    {
+      "name": "MONTO_MINIMO",
+      "label": "Monto Mínimo",
+      "type": "number",
+      "default": 5000,
+      "required": false
+    },
+    {
+      "name": "FILTRAR_PROPENSION",
+      "label": "Filtrar por Propensión",
+      "type": "checkbox",
+      "default": false,
+      "required": false
+    },
+    {
+      "name": "COD_MES_MODELO",
+      "label": "Mes del Modelo (Deciles)",
+      "type": "month",
+      "default": "current",
+      "required": false
+    },
+    {
+      "name": "DECIL_LIST",
+      "label": "Lista de Deciles (Comas)",
+      "type": "text",
+      "default": "1,2",
+      "required": false
+    },
+    {
+      "name": "SOLO_ENROLADOS_DIGITAL",
+      "label": "Solo Enrolados Digitales",
+      "type": "checkbox",
+      "default": false,
+      "required": false
+    },
+    {
+      "name": "REGLAS_MENSAJE",
+      "label": "Reglas de Mensaje",
+      "type": "table",
+      "default": [
+        {
+          "PCT_MIN": 17,
+          "PCT_MAX": 20,
+          "LINEA_MIN": 16000,
+          "ELECCION": "AMBOS",
+          "DECIL_LIST": "1,2",
+          "TASA_TEXT": "TCEA 12% (TASA 9.90%)",
+          "CUOTAS": 60,
+          "MENSAJE_TEMPLATE": "¡ULTIMA OPORTUNIDAD, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
+        },
+        {
+          "PCT_MIN": 24,
+          "PCT_MAX": 28,
+          "LINEA_MIN": 10000,
+          "ELECCION": "AMBOS",
+          "DECIL_LIST": "1,2",
+          "TASA_TEXT": "TCEA 28% (TASA 24.90%)",
+          "CUOTAS": 60,
+          "MENSAJE_TEMPLATE": "¡ACTIVA TU CREDITO AHORA, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
+        },
+        {
+          "PCT_MIN": 30,
+          "PCT_MAX": 34,
+          "LINEA_MIN": 5000,
+          "ELECCION": "AMBOS",
+          "DECIL_LIST": "1,2",
+          "TASA_TEXT": "TCEA 41% (TASA 34.90%)",
+          "CUOTAS": 60,
+          "MENSAJE_TEMPLATE": "¡SOLO HOY, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
+        },
+        {
+          "PCT_MIN": 35,
+          "PCT_MAX": 39,
+          "LINEA_MIN": 5000,
+          "ELECCION": "AMBOS",
+          "DECIL_LIST": "1,2",
+          "TASA_TEXT": "TCEA 48% (TASA 41.90%)",
+          "CUOTAS": 60,
+          "MENSAJE_TEMPLATE": "¡TU OFERTA VENCE PRONTO, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
+        },
+        {
+          "PCT_MIN": 40,
+          "PCT_MAX": 43,
+          "LINEA_MIN": 1500,
+          "ELECCION": "AMBOS",
+          "DECIL_LIST": "1,2",
+          "TASA_TEXT": "TCEA 59% (TASA 51.90%)",
+          "CUOTAS": 60,
+          "MENSAJE_TEMPLATE": "¡RETIRA TU EFECTIVO HOY, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
+        }
+      ],
+      "required": true
+    },
+    {
+      "name": "SIEMBRA_MENSAJE_TEMPLATE",
+      "label": "Mensaje Siembras",
+      "type": "text",
+      "default": "¡RETIRA TU EFECTIVO HOY, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a 60 cuotas con TCEA 59% (TASA 51.90%). Responde SI o llama al 016107900",
+      "required": true
+    },
+    {
+      "name": "TIPO_SIEMBRA_VAL",
+      "label": "Filtro de Siembra",
+      "type": "text",
+      "default": "SMS-CALL",
+      "required": true
+    },
+    {
+      "name": "URL_PROMO",
+      "label": "URL Promocional",
+      "type": "text",
+      "default": "",
+      "required": false
+    }
+  ],
+  "final_tables": [
+    {
+      "table": "##SMS_FINAL",
+      "label": "Base SMS Final"
+    }
+  ],
+  "show_preview": true,
+  "export_excel": true,
+  "auto_export_folder": "C:\\app",
+  "export_csv": true,
+  "auto_export_csv_folder": "C:\\app",
+  "send_email": false,
+  "email_default_to": "marcelo.nunez@cencosudscotiabank.pe",
+  "email_subject": "Base SMS PPFF",
+  "email_template": ""
+}

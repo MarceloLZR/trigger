@@ -31,10 +31,135 @@ def resolve_dynamic_value(value: Any) -> Any:
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QDateEdit, QComboBox, QCheckBox,
-    QSpinBox, QDoubleSpinBox, QLabel, QVBoxLayout
+    QSpinBox, QDoubleSpinBox, QLabel, QVBoxLayout, QHBoxLayout,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView
 )
 
 from core.models import Parameter, ParameterType
+
+
+class RulesTableWidget(QWidget):
+    def __init__(self, default_value=None, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels([
+            "PCT Mín", "PCT Máx", "Monto Mín", "Elección", 
+            "Deciles (ej: 1,2)", "Tasa / TCEA", "Cuotas", "Plantilla Mensaje"
+        ])
+        
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        
+        # Adjust default widths
+        self.table.setColumnWidth(0, 60)   # PCT Min
+        self.table.setColumnWidth(1, 60)   # PCT Max
+        self.table.setColumnWidth(2, 80)   # Monto Min
+        self.table.setColumnWidth(3, 80)   # Eleccion
+        self.table.setColumnWidth(4, 110)  # Deciles
+        self.table.setColumnWidth(5, 150)  # Tasa
+        self.table.setColumnWidth(6, 60)   # Cuotas
+        
+        layout.addWidget(self.table)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.add_btn = QPushButton("+ Añadir Regla")
+        self.add_btn.clicked.connect(self.add_row)
+        btn_layout.addWidget(self.add_btn)
+        
+        self.del_btn = QPushButton("- Eliminar Regla")
+        self.del_btn.clicked.connect(self.del_row)
+        btn_layout.addWidget(self.del_btn)
+        
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        self.setMinimumHeight(220)
+        
+        if default_value:
+            self.set_value(default_value)
+        else:
+            self.add_row()
+
+    def add_row(self):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        for col in range(8):
+            self.table.setItem(row, col, QTableWidgetItem(""))
+            
+    def del_row(self):
+        current_row = self.table.currentRow()
+        if current_row >= 0:
+            self.table.removeRow(current_row)
+        elif self.table.rowCount() > 0:
+            self.table.removeRow(self.table.rowCount() - 1)
+            
+    def get_value(self) -> list[dict]:
+        rows = []
+        for r in range(self.table.rowCount()):
+            row_data = {
+                "PCT_MIN": self._get_cell_float(r, 0),
+                "PCT_MAX": self._get_cell_float(r, 1),
+                "LINEA_MIN": self._get_cell_float(r, 2),
+                "ELECCION": self._get_cell_str(r, 3),
+                "DECIL_LIST": self._get_cell_str(r, 4),
+                "TASA_TEXT": self._get_cell_str(r, 5),
+                "CUOTAS": self._get_cell_int(r, 6),
+                "MENSAJE_TEMPLATE": self._get_cell_str(r, 7),
+            }
+            if row_data["MENSAJE_TEMPLATE"]:
+                rows.append(row_data)
+        return rows
+        
+    def set_value(self, val):
+        self.table.setRowCount(0)
+        if isinstance(val, str):
+            import json
+            try:
+                val = json.loads(val)
+            except Exception:
+                val = []
+        if not isinstance(val, list):
+            val = []
+            
+        for row_data in val:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QTableWidgetItem(self._str(row_data.get("PCT_MIN"))))
+            self.table.setItem(row, 1, QTableWidgetItem(self._str(row_data.get("PCT_MAX"))))
+            self.table.setItem(row, 2, QTableWidgetItem(self._str(row_data.get("LINEA_MIN"))))
+            self.table.setItem(row, 3, QTableWidgetItem(self._str(row_data.get("ELECCION"))))
+            self.table.setItem(row, 4, QTableWidgetItem(self._str(row_data.get("DECIL_LIST"))))
+            self.table.setItem(row, 5, QTableWidgetItem(self._str(row_data.get("TASA_TEXT"))))
+            self.table.setItem(row, 6, QTableWidgetItem(self._str(row_data.get("CUOTAS"))))
+            self.table.setItem(row, 7, QTableWidgetItem(self._str(row_data.get("MENSAJE_TEMPLATE"))))
+            
+    def _str(self, val) -> str:
+        return "" if val is None else str(val)
+        
+    def _get_cell_str(self, r, c) -> str:
+        item = self.table.item(r, c)
+        return item.text().strip() if item else ""
+        
+    def _get_cell_float(self, r, c) -> float | None:
+        val = self._get_cell_str(r, c)
+        try:
+            return float(val)
+        except ValueError:
+            return None
+            
+    def _get_cell_int(self, r, c) -> int | None:
+        val = self._get_cell_str(r, c)
+        try:
+            return int(val)
+        except ValueError:
+            return None
 
 
 class ParameterWidgetFactory:
@@ -81,6 +206,10 @@ class ParameterWidgetFactory:
             widget.setChecked(bool(value) if value is not None else False)
             return widget
 
+        if param.type == ParameterType.TABLE:
+            widget = RulesTableWidget(value)
+            return widget
+
         # TEXT por defecto
         widget = QLineEdit()
         if value is not None:
@@ -99,6 +228,8 @@ class ParameterWidgetFactory:
             return widget.value()
         if param.type == ParameterType.CHECKBOX:
             return widget.isChecked()
+        if param.type == ParameterType.TABLE:
+            return widget.get_value()
         return widget.text()
 
     @staticmethod
