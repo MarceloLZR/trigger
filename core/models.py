@@ -193,6 +193,20 @@ class ProcessDefinition:
     gpg_export_folder: Optional[str] = None  # Carpeta destino de archivos .gpg
     gpg_delete_original: bool = True       # Eliminar el original tras cifrar
 
+    # Motor de reglas genérico (opcional)
+    # Si está presente, el executor aplica RulesEngine sobre la tabla indicada
+    # sin necesitar ningún archivo Python adicional en la carpeta del proceso.
+    # Ejemplo:
+    #   "rules_engine": {
+    #     "source_table": "##SMS_EC_FINAL",
+    #     "dest_table":   "##SMS_FINAL",
+    #     "rules_param":  "REGLAS_MENSAJE",
+    #     "columns": {"pct": "PCT", "linea": "LINEA_DISP", "eleccion": "ELECCION",
+    #                 "decil": "DECIL", "nombre": "NOMBRE_", "celular": "CELULAR"},
+    #     "url_param": "URL_PROMO"
+    #   }
+    rules_engine: Optional[dict] = None
+
     @property
     def final_table(self) -> str:
         """Compatibilidad con código antiguo que accede a final_table (str)."""
@@ -252,6 +266,7 @@ class ProcessDefinition:
             gpg_keyid=data.get("gpg_keyid"),
             gpg_export_folder=data.get("gpg_export_folder"),
             gpg_delete_original=data.get("gpg_delete_original", True),
+            rules_engine=data.get("rules_engine"),
         )
 
 

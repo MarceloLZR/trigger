@@ -48,6 +48,170 @@ def resolve_dynamic_value(value: Any) -> Any:
 from infrastructure.sql_template_engine import MissingParameterError
 import os
 
+
+class RulesEngine:
+    """
+    Motor de reglas genérico configurable 100% desde process.json.
+
+    Cuando un proceso declara la clave "rules_engine" en su process.json,
+    este motor:
+      1. Lee la tabla fuente (source_table) de SQL Server.
+      2. Toma la lista de reglas del parámetro de tipo 'table' (rules_param).
+      3. Evalúa cada cliente contra las reglas en orden; la primera coincidencia
+         construye el mensaje final usando tokens estándar.
+      4. Appendea los resultados al DataFrame de dest_table en la lista results.
+
+    Columnas de matching configurables desde 'columns' en process.json:
+      pct, linea, eleccion, decil, nombre, celular
+
+    Tokens de reemplazo soportados en MENSAJE_TEMPLATE:
+      "Nombre"    -> valor de la columna `nombre`
+      "MONTO"     -> valor de LINEA_DISP formateado como entero
+      {Cuotas}    -> valor de la columna CUOTAS de la regla
+      {Tasa_Texto}-> valor de la columna TASA_TEXT de la regla
+    """
+
+    def __init__(self, config: dict, conn, log):
+        self.cfg = config
+        self.conn = conn
+        self.log = log
+
+    def apply(self, results: list[dict], params: dict):
+        cfg = self.cfg
+        source = cfg.get("source_table", "")
+        dest   = cfg.get("dest_table", "")
+        rules_key = cfg.get("rules_param", "")
+        cols = cfg.get("columns", {})
+        url_param = cfg.get("url_param", "")
+
+        # ----- leer reglas de la UI -----
+        rules = params.get(rules_key)
+        if not rules or not isinstance(rules, list):
+            self.log(f"[RulesEngine] No se encontraron reglas en el parámetro '{rules_key}'. Saltando.")
+            return
+
+        self.log(f"[RulesEngine] {len(rules)} regla(s) cargadas desde la interfaz.")
+
+        # ----- leer tabla fuente -----
+        self.log(f"[RulesEngine] Leyendo tabla fuente {source}...")
+        try:
+            df_raw = pd.read_sql(f"SELECT * FROM {source}", self.conn)
+        except Exception as e:
+            self.log(f"[RulesEngine][Error] No se pudo leer {source}: {e}")
+            raise
+
+        total = df_raw.shape[0]
+        self.log(f"[RulesEngine] {total} registros a evaluar.")
+        if total == 0:
+            return
+
+        # ----- alias de columnas -----
+        col_pct     = cols.get("pct",      "PCT")
+        col_linea   = cols.get("linea",    "LINEA_DISP")
+        col_elec    = cols.get("eleccion", "ELECCION")
+        col_decil   = cols.get("decil",    "DECIL")
+        col_nombre  = cols.get("nombre",   "NOMBRE_")
+        col_celular = cols.get("celular",  "CELULAR")
+
+        url_val = str(params.get(url_param, "")).strip()
+
+        filas_msg  = []
+        filas_url  = []
+        filas_cel  = []
+        matched = 0
+
+        for _, row in df_raw.iterrows():
+            pct_v   = self._safe_float(row.get(col_pct))
+            linea_v = self._safe_float(row.get(col_linea))
+            elec_v  = str(row.get(col_elec, "") or "").strip().upper()
+            decil_v = self._safe_int(row.get(col_decil))
+            nombre_v = str(row.get(col_nombre, "") or "")
+            cel_v   = str(row.get(col_celular, "") or "")
+
+            msg = None
+            for rule in rules:
+                # PCT
+                p_min = self._safe_float(rule.get("PCT_MIN"))
+                p_max = self._safe_float(rule.get("PCT_MAX"))
+                if p_min is not None and p_max is not None:
+                    if pct_v is None or not (p_min <= pct_v <= p_max):
+                        continue
+
+                # Monto mínimo
+                l_min = self._safe_float(rule.get("LINEA_MIN"))
+                if l_min is not None:
+                    if linea_v is None or linea_v < l_min:
+                        continue
+
+                # Elección (SAE / SAR / AMBOS)
+                r_elec = str(rule.get("ELECCION", "") or "").strip().upper()
+                if r_elec and r_elec != "AMBOS" and r_elec != elec_v:
+                    continue
+
+                # Deciles
+                r_dec_str = str(rule.get("DECIL_LIST", "") or "").strip()
+                if r_dec_str:
+                    try:
+                        r_decils = [int(x.strip()) for x in r_dec_str.split(",") if x.strip().isdigit()]
+                        if r_decils and (decil_v is None or decil_v not in r_decils):
+                            continue
+                    except Exception:
+                        continue
+
+                # Construir mensaje
+                tmpl   = str(rule.get("MENSAJE_TEMPLATE", ""))
+                cuotas = str(self._safe_int(rule.get("CUOTAS")) or "")
+                tasa   = str(rule.get("TASA_TEXT", "") or "")
+                monto  = str(int(linea_v)) if linea_v is not None else ""
+
+                msg = (tmpl
+                       .replace('"Nombre"', nombre_v)
+                       .replace('"MONTO"',  monto)
+                       .replace('{Cuotas}', cuotas)
+                       .replace('{Tasa_Texto}', tasa))
+                break
+
+            if msg:
+                filas_cel.append(cel_v)
+                filas_msg.append(msg)
+                filas_url.append(url_val if url_val else None)
+                matched += 1
+
+        self.log(f"[RulesEngine] {matched}/{total} clientes emparejados ({matched/total*100:.1f}%).")
+
+        df_out = pd.DataFrame({"CELULAR": filas_cel, "MENSAJE": filas_msg, "URL": filas_url})
+
+        # Appendear al DataFrame de dest_table
+        for res in results:
+            ft = res.get("final_table")
+            if ft and ft.table == dest:
+                res["df"] = pd.concat([df_out, res["df"]], ignore_index=True)
+                self.log(f"[RulesEngine] DataFrame final '{dest}' listo: {res['df'].shape[0]} registros.")
+                return
+
+        # dest_table no estaba en final_tables: añadirla como resultado virtual
+        self.log(f"[RulesEngine] Tabla destino '{dest}' no encontrada en final_tables; se añade como resultado adicional.")
+        results.append({"label": dest, "df": df_out, "export_name": None, "final_table": None})
+
+    # ---- helpers ----
+    @staticmethod
+    def _safe_float(v) -> float | None:
+        try:
+            f = float(v)
+            return None if pd.isna(f) else f
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _safe_int(v) -> int | None:
+        try:
+            f = float(v)
+            return None if pd.isna(f) else int(f)
+        except (TypeError, ValueError):
+            return None
+
+
+
 class ProcessWorker(QThread):
     log = Signal(str)
     progress = Signal(int)
@@ -162,7 +326,14 @@ class ProcessWorker(QThread):
                 )
                 results.append({"label": ft.label, "df": df, "export_name": ft.export_name, "final_table": ft})
 
-            # Hook de post-procesamiento dinámico en Python
+            # Motor de reglas genérico: activado si process.json declara "rules_engine"
+            if self.process.rules_engine:
+                self.log.emit("Ejecutando motor de reglas genérico (RulesEngine)...")
+                engine = RulesEngine(self.process.rules_engine, conn, lambda msg: self.log.emit(msg))
+                engine.apply(results, resolved_params)
+                self.log.emit("Motor de reglas finalizado.")
+
+            # Hook de post-procesamiento dinámico en Python (escape hatch para lógica irrepetible)
             post_process_script = self.process.folder / "post_process.py" if self.process.folder else None
             if post_process_script and post_process_script.exists():
                 self.log.emit("Ejecutando script de post-procesamiento dinámico...")

@@ -14,11 +14,7 @@
       "name": "ELECCION_TIPO",
       "label": "Tipo de Elección",
       "type": "combo",
-      "options": [
-        "SAR y SAE",
-        "Solo SAR",
-        "Solo SAE"
-      ],
+      "options": ["SAR y SAE", "Solo SAR", "Solo SAE"],
       "default": "SAR y SAE",
       "required": true
     },
@@ -70,53 +66,28 @@
       "type": "table",
       "default": [
         {
-          "PCT_MIN": 17,
-          "PCT_MAX": 20,
-          "LINEA_MIN": 16000,
-          "ELECCION": "AMBOS",
-          "DECIL_LIST": "1,2",
-          "TASA_TEXT": "TCEA 12% (TASA 9.90%)",
-          "CUOTAS": 60,
+          "PCT_MIN": 17,  "PCT_MAX": 20,  "LINEA_MIN": 16000, "ELECCION": "AMBOS", "DECIL_LIST": "",
+          "TASA_TEXT": "TCEA 12% (TASA 9.90%)",  "CUOTAS": 60,
           "MENSAJE_TEMPLATE": "¡ULTIMA OPORTUNIDAD, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
         },
         {
-          "PCT_MIN": 24,
-          "PCT_MAX": 28,
-          "LINEA_MIN": 10000,
-          "ELECCION": "AMBOS",
-          "DECIL_LIST": "1,2",
-          "TASA_TEXT": "TCEA 28% (TASA 24.90%)",
-          "CUOTAS": 60,
+          "PCT_MIN": 24,  "PCT_MAX": 28,  "LINEA_MIN": 10000, "ELECCION": "AMBOS", "DECIL_LIST": "",
+          "TASA_TEXT": "TCEA 28% (TASA 24.90%)", "CUOTAS": 60,
           "MENSAJE_TEMPLATE": "¡ACTIVA TU CREDITO AHORA, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
         },
         {
-          "PCT_MIN": 30,
-          "PCT_MAX": 34,
-          "LINEA_MIN": 5000,
-          "ELECCION": "AMBOS",
-          "DECIL_LIST": "1,2",
-          "TASA_TEXT": "TCEA 41% (TASA 34.90%)",
-          "CUOTAS": 60,
+          "PCT_MIN": 30,  "PCT_MAX": 34,  "LINEA_MIN": 5000,  "ELECCION": "AMBOS", "DECIL_LIST": "",
+          "TASA_TEXT": "TCEA 41% (TASA 34.90%)", "CUOTAS": 60,
           "MENSAJE_TEMPLATE": "¡SOLO HOY, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
         },
         {
-          "PCT_MIN": 35,
-          "PCT_MAX": 39,
-          "LINEA_MIN": 5000,
-          "ELECCION": "AMBOS",
-          "DECIL_LIST": "1,2",
-          "TASA_TEXT": "TCEA 48% (TASA 41.90%)",
-          "CUOTAS": 60,
+          "PCT_MIN": 35,  "PCT_MAX": 39,  "LINEA_MIN": 5000,  "ELECCION": "AMBOS", "DECIL_LIST": "",
+          "TASA_TEXT": "TCEA 48% (TASA 41.90%)", "CUOTAS": 60,
           "MENSAJE_TEMPLATE": "¡TU OFERTA VENCE PRONTO, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
         },
         {
-          "PCT_MIN": 40,
-          "PCT_MAX": 43,
-          "LINEA_MIN": 1500,
-          "ELECCION": "AMBOS",
-          "DECIL_LIST": "1,2",
-          "TASA_TEXT": "TCEA 59% (TASA 51.90%)",
-          "CUOTAS": 60,
+          "PCT_MIN": 40,  "PCT_MAX": 43,  "LINEA_MIN": 1500,  "ELECCION": "AMBOS", "DECIL_LIST": "",
+          "TASA_TEXT": "TCEA 59% (TASA 51.90%)", "CUOTAS": 60,
           "MENSAJE_TEMPLATE": "¡RETIRA TU EFECTIVO HOY, \"Nombre\"! Tienes S/\"MONTO\" aprobado en Efectivo Cencosud a {Cuotas} cuotas con {Tasa_Texto}. Responde SI o llama al 016107900"
         }
       ],
@@ -144,6 +115,20 @@
       "required": false
     }
   ],
+  "rules_engine": {
+    "source_table": "##SMS_EC_FINAL",
+    "dest_table":   "##SMS_FINAL",
+    "rules_param":  "REGLAS_MENSAJE",
+    "columns": {
+      "pct":      "PCT",
+      "linea":    "LINEA_DISP",
+      "eleccion": "ELECCION",
+      "decil":    "DECIL",
+      "nombre":   "NOMBRE_",
+      "celular":  "CELULAR"
+    },
+    "url_param": "URL_PROMO"
+  },
   "final_tables": [
     {
       "table": "##SMS_FINAL",
