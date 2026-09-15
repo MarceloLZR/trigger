@@ -269,8 +269,13 @@ class ProcessWorker(QThread):
             self.log.emit(f"Iniciando proceso: {self.process.name}")
             self.progress.emit(10)
 
-            with open(self.process.sql_path, "r", encoding="utf-8") as f:
-                raw_sql = f.read()
+            # Leer SQL: si el proceso vino de BD, sql_content ya está cargado;
+            # si vino de archivos, leemos desde sql_path (compatibilidad).
+            if self.process.sql_content is not None:
+                raw_sql = self.process.sql_content
+            else:
+                with open(self.process.sql_path, "r", encoding="utf-8") as f:
+                    raw_sql = f.read()
 
             if self._cancelled:
                 return self._emit_cancelled(record)

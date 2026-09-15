@@ -17,8 +17,10 @@ from PySide6.QtWidgets import (
 
 from core.models import ProcessDefinition
 from infrastructure.db.connection_manager import ConnectionManager
+from infrastructure.db_process_repository import DbProcessRepository
 from infrastructure.process_repository import ProcessRepository
 from infrastructure.workflow_repository import WorkflowRepository
+from application.process_admin_service import ProcessAdminService
 from infrastructure.sql_template_engine import SqlTemplateEngine
 from infrastructure.excel_exporter import ExcelExporter
 from infrastructure.csv_exporter import CsvExporter
@@ -33,6 +35,7 @@ from ui.views.quick_execution_view import QuickExecutionView
 from ui.views.workflows_view import WorkflowsView
 from ui.views.settings_view import SettingsView
 from ui.views.history_view import HistoryView
+from ui.views.admin_processes_view import AdminProcessesView
 
 import sys
 
@@ -54,13 +57,22 @@ class MainWindow(QMainWindow):
 
         # ---- Composition root: dependencias compartidas ----
         self.connection_manager = ConnectionManager.instance()
-        self.process_repository = ProcessRepository(PROJECT_ROOT / "processes")
+        # Repositorio en BD (fuente de verdad principal)
+        self.process_repository = DbProcessRepository(
+            self.connection_manager, current_user=self._get_current_user()
+        )
+        # Repositorio de archivos — solo para migración inicial
+        self._file_process_repository = ProcessRepository(PROJECT_ROOT / "processes")
         self.workflow_repository = WorkflowRepository(PROJECT_ROOT / "workflows")
         self.template_engine = SqlTemplateEngine()
         self.excel_exporter = ExcelExporter()
         self.csv_exporter = CsvExporter()
         self.email_sender = EmailSender()
         self.history_service = HistoryService()
+        self.process_admin_service = ProcessAdminService(self.process_repository)
+
+        # Migración automática si BD está vacía
+        self._run_migration_if_needed()
 
         self.processes: list[ProcessDefinition] = self.process_repository.load_all()
         self.workflows = self.workflow_repository.load_all()
@@ -108,10 +120,13 @@ class MainWindow(QMainWindow):
         )
         self.settings_view = SettingsView(self.connection_manager)
         self.history_view = HistoryView(self.history_service)
+        self.admin_view = AdminProcessesView(self.process_admin_service)
+        self.admin_view.processes_changed.connect(self._reload_data)
 
         for view in [
             self.dashboard_view, self.module_view, self.process_run_view,
-            self.quick_execution_view, self.workflows_view, self.settings_view, self.history_view
+            self.quick_execution_view, self.workflows_view, self.settings_view,
+            self.history_view, self.admin_view
         ]:
             self.stack.addWidget(view)
 
@@ -143,6 +158,7 @@ class MainWindow(QMainWindow):
             ("🔗  Workflows", "workflows"),
             ("🕘  Historial", "history"),
             ("⚙️  Configuración", "settings"),
+            ("🛠️  Administrar procesos", "admin"),
         ]
         self._nav_buttons = {}
         for label, key in nav_items:
@@ -198,11 +214,39 @@ class MainWindow(QMainWindow):
             "workflows": self.workflows_view,
             "history": self.history_view,
             "settings": self.settings_view,
+            "admin": self.admin_view,
         }
         view = mapping[key]
         if key == "history":
             self.history_view.refresh()
+        if key == "admin":
+            self.admin_view.refresh()
         self.stack.setCurrentWidget(view)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _get_current_user() -> str:
+        """Obtiene el nombre del usuario actual del sistema operativo."""
+        import os
+        return os.environ.get("USERNAME") or os.environ.get("USER") or "sistema"
+
+    def _run_migration_if_needed(self):
+        """Migra procesos desde archivos a BD si la BD está vacía."""
+        try:
+            n, errors = self.process_admin_service.migrate_from_files(
+                PROJECT_ROOT / "processes",
+                usuario=self._get_current_user(),
+            )
+            if n > 0:
+                from PySide6.QtWidgets import QMessageBox
+                msg = f"✅  Migración completada: {n} proceso(s) importados a BD_NEGOCIO."
+                if errors:
+                    msg += f"\n\n⚠️  {len(errors)} error(s):\n" + "\n".join(errors[:5])
+                QMessageBox.information(None, "Migración inicial", msg)
+        except Exception as exc:
+            print(f"[MainWindow] Error en migración: {exc}")
 
     def _open_module(self, module_name: str):
         self.module_view.set_module(module_name, self.processes)

@@ -160,6 +160,10 @@ class ProcessDefinition:
     email_default_to: Optional[str] = None
     email_subject: Optional[str] = None
     folder: Optional[Path] = None
+
+    # Contenido SQL precargado (usado cuando el proceso viene de la BD).
+    # Si está presente, el executor lo usa en lugar de leer sql_path.
+    sql_content: Optional[str] = None
     
     # Emblue Settings
     send_emblue: bool = False
